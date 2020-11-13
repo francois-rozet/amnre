@@ -1,0 +1,12 @@
+#########
+# LaTeX #
+#########
+
+*.tex linguist-vendored
+
+
+###########
+# IPython #
+###########
+
+*.ipynb linguist-vendored
