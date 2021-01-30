@@ -3,11 +3,16 @@
 import torch
 import torch.nn as nn
 
-from torch.distributions.distribution import Distribution
-from torch.distributions.uniform import Uniform
-from torch.distributions.multivariate_normal import MultivariateNormal
+from torch.distributions import (
+    Categorical,
+    Distribution,
+    Independent,
+    MixtureSameFamily,
+    MultivariateNormal,
+    Uniform,
+)
 
-from typing import Tuple
+from typing import Tuple, List
 
 
 class Simulator(nn.Module):
@@ -15,16 +20,6 @@ class Simulator(nn.Module):
 
     def __init__(self):
         super().__init__()
-
-    @property
-    def theta_star(self) -> torch.Tensor:
-        r""" theta* """
-
-        return self._theta_star
-
-    @property
-    def theta_size(self) -> torch.Size:
-        return self.theta_star.size()
 
     @property
     def prior(self) -> Distribution:
@@ -36,6 +31,11 @@ class Simulator(nn.Module):
         r""" p(x | theta) """
 
         raise NotImplementedError()
+
+    def log_prob(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        r""" log p(theta) p(x | theta) """
+
+        return self.prior.log_prob(theta) + self.likelihood(theta).log_prob(x)
 
     def forward(self, theta: torch.Tensor) -> torch.Tensor:
         r""" x ~ p(x | theta) """
@@ -51,40 +51,125 @@ class Simulator(nn.Module):
         return theta, x
 
 
-class Tractable(Simulator):
-    r"""Tractable Simulator"""
+class SLCP(Simulator):
+    r"""Simple Likelihood Complex Posterior"""
 
-    def __init__(self):
+    def __init__(self, lim: float = 3.):
         super().__init__()
 
-        self.register_buffer('_theta_star', torch.tensor([0.7, -2.9, -1., -0.9, 0.6]))
-        self.register_buffer('_bound', 3. * torch.ones(5))
+        self.register_buffer('low', -lim * torch.ones(5))
+        self.register_buffer('high', lim * torch.ones(5))
 
     @property
     def prior(self) -> Distribution:
         r""" p(theta) """
 
-        return Uniform(-self._bound, self._bound)
+        return Independent(Uniform(self.low, self.high), 1)
 
-    def likelihood(self, theta: torch.Tensor) -> Distribution:
+    def likelihood(self, theta: torch.Tensor, eps: float = 1e-8) -> Distribution:
         r""" p(x | theta) """
 
-        mean = theta[..., :2]
+        theta = theta.unsqueeze(-2).repeat_interleave(4, -2)
 
-        s1 = theta[..., 2] ** 2
-        s2 = theta[..., 3] ** 2
+        # Mean
+        mu = theta[..., :2]
+
+        # Covariance
+        s1 = theta[..., 2] ** 2 + eps
+        s2 = theta[..., 3] ** 2 + eps
         rho = theta[..., 4].tanh()
 
-        covariance = torch.stack([
-            torch.stack([s1 ** 2, rho * s1 * s2], dim=-1),
-            torch.stack([rho * s1 * s2, s2 ** 2], dim=-1),
-        ], dim=-1)
+        cov = stack2d([
+            [      s1 ** 2, rho * s1 * s2],
+            [rho * s1 * s2,       s2 ** 2],
+        ])
 
-        return MultivariateNormal(mean, covariance)
+        normal = MultivariateNormal(mu, cov)
 
-    def forward(self, theta: torch.Tensor) -> torch.Tensor:
-        r""" (x_1, ..., x_4) ~ π_{i=1}^4 p(x_i | theta) """
+        return Independent(normal, 1)
 
-        x_i = self.likelihood(theta).sample((4,))
 
-        return torch.cat(torch.unbind(x_i), dim=-1)
+class MLCP(SLCP):
+    r"""Mixture Likelihood Complex Posterior"""
+
+    def __init__(self, lim: float = 3.):
+        super().__init__()
+
+        self.register_buffer('low', -lim * torch.ones(8))
+        self.register_buffer('high', lim * torch.ones(8))
+
+    def likelihood(self, theta: torch.Tensor, eps: float = 1e-8) -> Distribution:
+        r""" p(x | theta) """
+
+        theta = theta.unsqueeze(-2).repeat_interleave(8, -2)
+
+        # Rotation matrix
+        alpha = theta[..., 0].sigmoid().asin()
+        beta = theta[..., 1].sigmoid().acos()
+        gamma = theta[..., 2].tanh().atan()
+
+        zero = torch.zeros_like(alpha)
+        one = torch.ones_like(alpha)
+
+        Rz = stack2d([
+            [alpha.cos(), -alpha.sin(), zero],
+            [alpha.sin(),  alpha.cos(), zero],
+            [       zero,         zero,  one],
+        ])
+
+        Ry = stack2d([
+            [ beta.cos(), zero, beta.sin()],
+            [       zero,  one,       zero],
+            [-beta.sin(), zero, beta.cos()],
+        ])
+
+        Rx = stack2d([
+            [ one,        zero,         zero],
+            [zero, gamma.cos(), -gamma.sin()],
+            [zero, gamma.sin(),  gamma.cos()],
+        ])
+
+        R = (Rz @ Ry @ Rx)[..., :2, :2]
+
+        # Mean
+        d = theta[..., 3] ** 2 + 1.
+
+        mu = R @ stack2d([
+            [   d, zero],
+            [zero,    d],
+        ])
+
+        # Covariance
+        s1 = theta[..., 4] ** 2 + eps
+        s2 = theta[..., 5] ** 2 + eps
+        rho = theta[..., 6].tanh()
+
+        cov1 = stack2d([
+            [      s1 ** 2, rho * s1 * s2],
+            [rho * s1 * s2,       s2 ** 2],
+        ])
+
+        cov2 = stack2d([
+            [1. / (s1 + 1.),           zero],
+            [          zero, 1. / (s2 + 1.)],
+        ])
+
+        cov = torch.stack([cov1, cov2], dim=-3)
+
+        # Mixture
+        p = theta[..., 7].sigmoid()
+        mix = torch.stack([p, 1. - p], dim=-1)
+
+        normal = MixtureSameFamily(
+            Categorical(mix),
+            MultivariateNormal(mu, cov),
+        )
+
+        return Independent(normal, 1)
+
+
+def stack2d(matrix: List[List[torch.Tensor]]) -> torch.Tensor:
+    return torch.stack([
+        torch.stack(row, dim=-1)
+        for row in matrix
+    ], dim=-2)
