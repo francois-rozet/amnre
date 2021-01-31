@@ -4,29 +4,30 @@ import torch
 import torch.nn as nn
 
 
-class ForkLoss(nn.Module):
-    r"""Fork Loss (FL)"""
+class MNRELoss(nn.Module):
+    r"""Marginal Neural Ratio Estimator Loss (MNRELoss)"""
 
-    def __init__(self):
+    def __init__(self, masks: torch.BoolTensor):
         super().__init__()
 
-        self.bce = nn.BCEWithLogitsLoss()
+        self.register_buffer('masks', masks.float())  # (M, T)
+
+        self.bce = nn.BCEWithLogitsLoss(reduction='sum')
 
     def forward(
         self,
-        logits: torch.Tensor,  # (N, H)
-        true_masks: torch.BoolTensor,  # (N, T)
-        head_masks: torch.BoolTensor,  # (H, T)
+        ratios: torch.Tensor,  # (N, M)
+        mask: torch.BoolTensor,  # (T,)
     ) -> torch.Tensor:
-        matches = true_masks.float() @ head_masks.float().t()
+        match = self.masks @ mask.float()
 
-        positive = matches == head_masks.sum(dim=-1)
-        negative = matches == 0.
+        positive = match == self.masks.sum(dim=-1)
+        negative = match == 0.
 
-        pred = logits[positive]
-        l_1 = self.bce(pred, torch.ones_like(pred))
+        p = ratios[..., positive]
+        l_1 = self.bce(p, torch.ones_like(p))
 
-        pred = logits[negative]
-        l_0 = self.bce(pred, torch.zeros_like(pred))
+        p = ratios[..., negative]
+        l_0 = self.bce(p, torch.zeros_like(p))
 
-        return l_1 + l_0
+        return (l_1 + l_0) / len(ratios)
