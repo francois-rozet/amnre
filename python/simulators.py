@@ -66,6 +66,11 @@ class SLCP(Simulator):
 
         return Independent(Uniform(self.low, self.high), 1)
 
+    def subprior(self, mask: torch.BoolTensor) -> Distribution:
+        r""" p(theta_a) """
+
+        return Independent(Uniform(self.low[mask], self.high[mask]), 1)
+
     def likelihood(self, theta: torch.Tensor, eps: float = 1e-8) -> Distribution:
         r""" p(x | theta) """
 
