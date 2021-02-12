@@ -4,14 +4,14 @@ import torch
 import torch.nn as nn
 import torch.utils.data as data
 
-from functools import cached_property
+from itertools import islice
 from torch.distributions import (
     Distribution,
     Independent,
     Normal,
 )
 
-from typing import Callable, Iterable, List
+from typing import Iterable
 
 from simulators import Simulator
 
@@ -77,44 +77,44 @@ class MetropolisHastings(data.IterableDataset):
 
         return self._transition
 
+    @torch.no_grad()
     def __iter__(self) -> torch.Tensor:
-        with torch.no_grad():
-            x = self.first
+        x = self.first
 
-            # p(x)
-            p_x = self.log_prob(x)
+        # p(x)
+        p_x = self.log_prob(x)
 
-            while True:
-                # y ~ q(y | x)
-                y = self.transition(x)
+        while True:
+            # y ~ q(y | x)
+            y = self.transition(x)
 
-                # p(y)
-                p_y = self.log_prob(y)
+            # p(y)
+            p_y = self.log_prob(y)
 
-                #     p(y)   q(x | y)
-                # a = ---- * --------
-                #     p(x)   q(y | x)
-                a = p_y - p_x
+            #     p(y)   q(x | y)
+            # a = ---- * --------
+            #     p(x)   q(y | x)
+            a = p_y - p_x
 
-                if not self.transition.symmertic:
-                    a += self.transition(y, x) - self.transition(x, y)
+            if not self.transition.symmertic:
+                a = a + self.transition(y, x) - self.transition(x, y)
 
-                a = a.exp()
+            a = a.exp()
 
-                # u in [0; 1]
-                u = torch.rand(a.size()).to(a)
+            # u in [0; 1]
+            u = torch.rand(a.shape).to(a)
 
-                # if u < a, x <- y
-                # else x <- x
-                mask = u < a
+            # if u < a, x <- y
+            # else x <- x
+            mask = u < a
 
-                x[mask] = y[mask]
-                p_x[mask] = p_y[mask]
+            x = torch.where(mask.unsqueeze(-1), y, x)
+            p_x = torch.where(mask, p_y, p_x)
 
-                yield x
+            yield x
 
-    def __call__(self, n: int) -> List[torch.Tensor]:
-        return [x.cpu() for _, x in zip(range(n), self)]
+    def __call__(self, n: int) -> Iterable[torch.Tensor]:
+        return islice(self, n)
 
 
 class TractableSampler(MetropolisHastings):
