@@ -9,10 +9,8 @@ import torchist
 from typing import Iterable, List, Union
 
 
-Array = np.array
-Tensor = torch.Tensor
-ArrayLike = Union[List[int], List[float], Array]
-TensorLike = Union[int, float, ArrayLike, Tensor]
+Number = Union[int, float]
+ArrayLike = Union[Number, List[Number], np.ndarray, torch.Tensor]
 
 
 plt.rcParams['axes.grid'] = True
@@ -23,13 +21,13 @@ plt.rcParams['savefig.transparent'] = True
 
 
 def pairhist(
-    samples: Iterable[Tensor],
-    low: TensorLike,
-    high: TensorLike,
+    samples: Iterable[torch.Tensor],
+    low: ArrayLike,
+    high: ArrayLike,
     bins: Union[int, List[int]] = 100,
     normed: bool = False,
     bounded: bool = False,
-) -> List[List[Array]]:
+) -> List[List[torch.Tensor]]:
     r"""Pairwise histograms"""
 
     hists = None
@@ -42,24 +40,33 @@ def pairhist(
             if type(bins) is int:
                 bins = [bins] * D
 
+            ## Shape of each histogram
             shapes = [[
                 torch.Size((bins[i], bins[j]) if i != j else (bins[i],))
                 for j in range(i + 1)
             ] for i in range(D)]
 
+            ## Initialize at 0
             hists = [[
-                torch.zeros(shapes[i][j].numel()).to(x).long()
+                torch.zeros(shapes[i][j].numel()).to(x)
                 for j in range(i + 1)
             ] for i in range(D)]
 
             bins = torch.tensor(bins).to(x)
-            low, high = torch.tensor(low).to(x), torch.tensor(high).to(x)
+
+            if not torch.is_tensor(low):
+                low, high = torch.tensor(low), torch.tensor(high)
+
+            low, high = low.to(x), high.to(x)
 
         # Histograms
+
+        ## Filter out-of-bounds
         if not bounded:
             mask = ~torchist.out_of_bounds(x, low, high)
             x = x[mask]
 
+        ## Count
         x = torchist.discretize(x, bins, low, high).long()
 
         for i in range(D):
@@ -69,25 +76,24 @@ def pairhist(
                 else:
                     indices = x[..., i]
 
-                hists[i][j] += indices.bincount(minlength=shapes[i][j].numel())
+                hists[i][j] += indices.bincount(minlength=shapes[i][j].numel()).float()
 
+    # Post-processing
     for i in range(D):
         for j in range(i + 1):
-            hists[i][j] = hists[i][j].float().view(shapes[i][j])
-
             if normed:
                 hists[i][j] /= hists[i][j].sum()
 
-            hists[i][j] = hists[i][j].cpu().numpy()
+            hists[i][j] = hists[i][j].cpu().view(shapes[i][j])
 
     return hists
 
 
 def corner(
-    hists: List[List[Array]],
+    hists: List[List[ArrayLike]],
     low: ArrayLike,
     high: ArrayLike,
-    quantiles: List[float] = [.6827, .8664, .9545, .9876, .9973],
+    percentiles: ArrayLike = [.1974, .3829, .6827, .8664, .9545, .9973],
     labels: List[str] = [],
     **fig_kwargs,
 ) -> mpl.figure.Figure:
@@ -98,6 +104,10 @@ def corner(
     fig_kwargs.setdefault('figsize', (D * 4.8,) * 2)
     fig, axs = plt.subplots(D, D, squeeze=False, **fig_kwargs)
 
+    low, high = np.asarray(low), np.asarray(high)
+    percentiles = np.sort(np.asarray(percentiles))
+    percentiles = np.append(percentiles[::-1], 0.)
+
     for i in range(D):
         for j in range(D):
             if j > i:
@@ -105,7 +115,7 @@ def corner(
                 continue
 
             ax = axs[i, j]
-            hist = hists[i][j]
+            hist = np.asarray(hists[i][j])
 
             if i == j:
                 x = np.linspace(low[i], high[i], hist.shape[0])
@@ -115,9 +125,13 @@ def corner(
                 x = np.linspace(low[j], high[j], hist.shape[1])
                 y = np.linspace(low[i], high[i], hist.shape[0])
 
-                levels = np.quantile(hist, quantiles + [1.])
+                levels = coverage(hist, percentiles)
 
-                cf = ax.contourf(x, y, hist, levels=levels, cmap='Blues')
+                cf = ax.contourf(
+                    x, y, hist,
+                    levels=levels,
+                    cmap=NonLinearColormap('Blues', levels)
+                )
                 ax.contour(cf, colors='k', linewidths=1.)
 
                 if i > 0:
@@ -137,3 +151,30 @@ def corner(
                     ax.set_ylabel(labels[i])
 
     return fig
+
+
+def coverage(x: np.ndarray, percentiles: ArrayLike) -> np.ndarray:
+    r"""Coverage percentiles"""
+
+    x = np.sort(x, axis=None)[::-1]
+    cdf = np.cumsum(x) / x.sum()
+    idx = np.searchsorted(cdf, percentiles)
+
+    return x[idx]
+
+
+class NonLinearColormap(mpl.colors.LinearSegmentedColormap):
+    r"""Non-linear colormap"""
+
+    def __init__(self, cmap: str, levels: np.ndarray):
+        self.cmap = plt.get_cmap(cmap)
+
+        self.dom = (levels - levels.min()) / (levels.max() - levels.min())
+        self.img = np.linspace(0., 1., len(levels))
+
+    def __getattr__(self, attr: str):
+        return getattr(self.cmap, attr)
+
+    def __call__(self, x: np.ndarray, alpha: float = 1.0, **kwargs) -> np.ndarray:
+        y = np.interp(x, self.dom, self.img)
+        return self.cmap(y, alpha)
