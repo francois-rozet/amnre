@@ -16,21 +16,26 @@ class LTEDataset(data.IterableDataset):
         self,
         simulator: Simulator,
         batch_size: int = 256,
+        mode: int = 0
     ):
         super().__init__()
 
         self.simulator = simulator
         self.batch_shape = (batch_size,)
+        self.mode = mode
 
         self.all = torch.ones_like(self.simulator.prior.sample()).bool()
 
     def __iter__(self) -> Tuple[torch.Tensor, torch.Tensor, torch.BoolTensor]:
         while True:
             theta, x = self.simulator.sample(self.batch_shape)
-            theta_prime = self.simulator.prior.sample(self.batch_shape)
 
-            # (theta, x)
-            yield theta, x, self.all
+            if self.mode >= 0:
+                # (theta, x)
+                yield theta, x, self.all
 
-            # (theta', x)
-            yield theta_prime, x, ~self.all
+            if self.mode <= 0:
+                theta_prime = self.simulator.prior.sample(self.batch_shape)
+
+                # (theta', x)
+                yield theta_prime, x, ~self.all

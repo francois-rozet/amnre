@@ -2,6 +2,7 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from typing import List
 
@@ -51,6 +52,22 @@ class RELoss(nn.Module):
         return l / len(ratios)
 
 
+class RMSELoss(nn.Module):
+    r"""Root Mean Squared Error Loss (RMSELoss)"""
+
+    def __init__(self, epsilon: float = 1e-8):
+        super().__init__()
+
+        self.epsilon = epsilon
+
+    def forward(
+        self,
+        input: torch.Tensor,
+        target: torch.Tensor,
+    ) -> torch.Tensor:
+        return torch.sqrt(F.mse_loss(input, target) + self.epsilon)
+
+
 class RDLoss(nn.Module):
     r"""Ratio Distillation Loss (RDLoss)"""
 
@@ -64,7 +81,7 @@ class RDLoss(nn.Module):
         self.subsets = intersections.sum(-1) == masks.sum(-1)
         self.m = len(self.subsets)
 
-        self.mse = nn.MSELoss(reduction='mean')
+        self.mse = nn.MSELoss()
 
     def forward(
         self,
@@ -79,6 +96,6 @@ class RDLoss(nn.Module):
             for i in range(self.m):
                 for j in range(self.m):
                     if i != j and self.subsets[i, j]:
-                        l = l + self.mse(ratios[:, i].detach(), ratios[:, j])
+                        l = l + self.mse(ratios[:, j], ratios[:, i].detach())
 
         return l
