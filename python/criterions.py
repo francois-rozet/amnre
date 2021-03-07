@@ -10,21 +10,41 @@ from typing import List
 class WeightedLoss(nn.Module):
     r"""Weighted Loss"""
 
+    def __new__(cls, loss: nn.Module, weight: float = None):
+        if weight is None:
+            return loss
+        else:
+            return super().__new__(cls)
+
+    def __init__(self, loss: nn.Module, weight: float):
+        super().__init__()
+
+        self.loss = loss
+        self.weight = weight
+
+    def forward(self, *args, **kwargs) -> torch.Tensor:
+        return self.weight * self.loss(*args, **kwargs)
+
+
+class CompositeLoss(nn.Module):
+    r"""Composite Loss"""
+
     def __init__(self, losses: List[nn.Module], weights: List[float] = None):
         super().__init__()
 
-        self.losses = nn.ModuleList(losses)
-
         if weights is None:
-            weights = [1.] * len(losses)
+            weights = [None] * len(losses)
 
-        self.register_buffer('weights', torch.tensor(weights))
+        self.losses = nn.ModuleList([
+            WeightedLoss(l, w)
+            for (l, w) in zip(losses, weights)
+        ])
 
     def forward(self, *args, **kwargs) -> torch.Tensor:
         l = torch.tensor(0.)
 
-        for loss, w in zip(self.losses, self.weights):
-            l = l + w * loss(*args, **kwargs)
+        for loss in self.losses:
+            l = l + loss(*args, **kwargs)
 
         return l
 
@@ -71,31 +91,20 @@ class RMSELoss(nn.Module):
 class RDLoss(nn.Module):
     r"""Ratio Distillation Loss (RDLoss)"""
 
-    def __init__(self, masks: torch.BoolTensor):
+    def __init__(self):
         super().__init__()
 
-        unions = masks.unsqueeze(1) + masks
-        intersections = masks.unsqueeze(1) * masks
-
-        # if subsets[i, j]: mask[j] in mask[i]
-        self.subsets = intersections.sum(-1) == masks.sum(-1)
-        self.m = len(self.subsets)
-
-        self.mse = nn.MSELoss()
+        self.se = nn.MSELoss(reduction='sum')
 
     def forward(
         self,
         ratios: torch.Tensor,  # (N, M)
-        mask: torch.BoolTensor,  # (T,)
+        target: torch.Tensor,  # (N,)
     ) -> torch.Tensor:
-        l = torch.tensor(0., requires_grad=True)
 
-        if torch.all(~mask):
-            ratios = ratios.exp()
+        l = self.se(
+            ratios.exp(),
+            target.exp().unsqueeze(-1).expand(ratios.shape),
+        )
 
-            for i in range(self.m):
-                for j in range(self.m):
-                    if i != j and self.subsets[i, j]:
-                        l = l + self.mse(ratios[:, j], ratios[:, i].detach())
-
-        return l
+        return l / len(target)

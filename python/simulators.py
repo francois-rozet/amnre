@@ -74,8 +74,6 @@ class SLCP(Simulator):
     def likelihood(self, theta: torch.Tensor, eps: float = 1e-8) -> Distribution:
         r""" p(x | theta) """
 
-        theta = theta.unsqueeze(-2).repeat_interleave(4, -2)
-
         # Mean
         mu = theta[..., :2]
 
@@ -89,6 +87,11 @@ class SLCP(Simulator):
             [rho * s1 * s2,       s2 ** 2],
         ])
 
+        # Repeat
+        mu = mu.unsqueeze(-2).repeat_interleave(4, -2)
+        cov = cov.unsqueeze(-3).repeat_interleave(4, -3)
+
+        # Normal
         normal = MultivariateNormal(mu, cov)
 
         return Independent(normal, 1)
@@ -105,8 +108,6 @@ class MLCP(SLCP):
 
     def likelihood(self, theta: torch.Tensor, eps: float = 1e-8) -> Distribution:
         r""" p(x | theta) """
-
-        theta = theta.unsqueeze(-2).repeat_interleave(8, -2)
 
         # Rotation matrix
         alpha = theta[..., 0].sigmoid().asin()
@@ -138,11 +139,7 @@ class MLCP(SLCP):
 
         # Mean
         d = theta[..., 3] ** 2 + 1.
-
-        mu = R @ stack2d([
-            [   d, zero],
-            [zero,    d],
-        ])
+        mu = d[..., None, None] * R
 
         # Covariance
         s1 = theta[..., 4] ** 2 + eps
@@ -165,6 +162,12 @@ class MLCP(SLCP):
         p = theta[..., 7].sigmoid()
         mix = torch.stack([p, 1. - p], dim=-1)
 
+        # Repeat
+        mix = mix.unsqueeze(-2).repeat_interleave(8, -2)
+        mu = mu.unsqueeze(-3).repeat_interleave(8, -3)
+        cov = cov.unsqueeze(-4).repeat_interleave(8, -4)
+
+        # Normal
         normal = MixtureSameFamily(
             Categorical(mix),
             MultivariateNormal(mu, cov),

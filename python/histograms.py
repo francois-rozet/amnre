@@ -4,9 +4,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torchist
 
-from typing import Iterable, List, Union
+from torchist import *
+from typing import List, Union
 
 
 Number = Union[int, float]
@@ -20,71 +20,21 @@ plt.rcParams['legend.fontsize'] = 'small'
 plt.rcParams['savefig.transparent'] = True
 
 
-def pairhist(
-    samples: Iterable[torch.Tensor],
-    low: ArrayLike,
-    high: ArrayLike,
-    bins: Union[int, List[int]] = 100,
-    normed: bool = False,
-    bounded: bool = False,
-) -> List[List[torch.Tensor]]:
-    r"""Pairwise histograms"""
+def pairify(hist: torch.Tensor) -> List[List[torch.Tensor]]:
+    r"""Pairwise-ify histogram"""
 
-    hists = None
+    hists = []
 
-    for x in samples:
-        # Initialization
-        if hists is None:
-            D = x.size(-1)
+    for i in range(hist.dim()):
+        hists.append([])
 
-            if type(bins) is int:
-                bins = [bins] * D
-
-            ## Shape of each histogram
-            shapes = [[
-                torch.Size((bins[i], bins[j]) if i != j else (bins[i],))
-                for j in range(i + 1)
-            ] for i in range(D)]
-
-            ## Initialize at 0
-            hists = [[
-                torch.zeros(shapes[i][j].numel()).to(x)
-                for j in range(i + 1)
-            ] for i in range(D)]
-
-            bins = torch.tensor(bins).to(x)
-
-            if not torch.is_tensor(low):
-                low, high = torch.tensor(low), torch.tensor(high)
-
-            low, high = low.to(x), high.to(x)
-
-        # Histograms
-
-        ## Filter out-of-bounds
-        if not bounded:
-            mask = ~torchist.out_of_bounds(x, low, high)
-            x = x[mask]
-
-        ## Count
-        x = torchist.discretize(x, bins, low, high).long()
-
-        for i in range(D):
-            for j in range(i + 1):
-                if i != j:
-                    indices = torchist.ravel_multi_index(x[..., [i, j]], shapes[i][j])
-                else:
-                    indices = x[..., i]
-
-                hists[i][j] += indices.bincount(minlength=shapes[i][j].numel()).float()
-
-    # Post-processing
-    for i in range(D):
         for j in range(i + 1):
-            if normed:
-                hists[i][j] /= hists[i][j].sum()
+            h = marginalize(hist, dim=[i, j], keep=True).t()
 
-            hists[i][j] = hists[i][j].cpu().view(shapes[i][j])
+            if h.is_sparse:
+                h = h.to_dense()
+
+            hists[i].append(h.cpu())
 
     return hists
 
@@ -157,8 +107,8 @@ def coverage(x: np.ndarray, percentiles: ArrayLike) -> np.ndarray:
     r"""Coverage percentiles"""
 
     x = np.sort(x, axis=None)[::-1]
-    cdf = np.cumsum(x) / x.sum()
-    idx = np.searchsorted(cdf, percentiles)
+    cdf = np.cumsum(x)
+    idx = np.searchsorted(cdf, np.asarray(percentiles) * cdf[-1])
 
     return x[idx]
 
