@@ -1,4 +1,15 @@
 ##########
+# Others #
+##########
+
+# VS Code
+.vscode
+
+# Products
+products/
+
+
+##########
 # Python #
 ##########
 

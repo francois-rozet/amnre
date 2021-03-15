@@ -49,29 +49,6 @@ class CompositeLoss(nn.Module):
         return l
 
 
-class RELoss(nn.Module):
-    r"""Ratio Estimator Loss (RELoss)"""
-
-    def __init__(self):
-        super().__init__()
-
-        self.bce = nn.BCEWithLogitsLoss(reduction='sum')
-
-    def forward(
-        self,
-        ratios: torch.Tensor,  # (N, *)
-        mask: torch.BoolTensor,  # (T,)
-    ) -> torch.Tensor:
-        if torch.all(mask):
-            l = self.bce(ratios, torch.ones_like(ratios))
-        elif torch.all(~mask):
-            l = self.bce(ratios, torch.zeros_like(ratios))
-        else:
-            l = torch.tensor(0., requires_grad=True)
-
-        return l / len(ratios)
-
-
 class RMSELoss(nn.Module):
     r"""Root Mean Squared Error Loss (RMSELoss)"""
 
@@ -88,23 +65,45 @@ class RMSELoss(nn.Module):
         return torch.sqrt(F.mse_loss(input, target) + self.epsilon)
 
 
-class RDLoss(nn.Module):
-    r"""Ratio Distillation Loss (RDLoss)"""
+class RELoss(nn.Module):
+    r"""Ratio Estimator Loss (RELoss)"""
 
     def __init__(self):
         super().__init__()
 
-        self.se = nn.MSELoss(reduction='sum')
+        self.bce = nn.BCEWithLogitsLoss(reduction='sum')
 
     def forward(
         self,
-        ratios: torch.Tensor,  # (N, M)
-        target: torch.Tensor,  # (N,)
+        ratio: torch.Tensor,  # r(theta | x)
+        ratio_prime: torch.Tensor,  # r(theta' | x)
+    ) -> torch.Tensor:
+        l1 = self.bce(ratio, torch.ones_like(ratio))
+        l0 = self.bce(ratio_prime, torch.zeros_like(ratio))
+
+        return (l1 + l0) / ratio.size(0)
+
+
+class RDLoss(nn.Module):
+    r"""Ratio Distillation Loss (RDLoss)"""
+
+    def forward(
+        self,
+        ratio: torch.Tensor,  # r(theta_a | x)
+        target: torch.Tensor,  # r(theta | x)
     ) -> torch.Tensor:
 
-        l = self.se(
-            ratios.exp(),
-            target.exp().unsqueeze(-1).expand(ratios.shape),
-        )
+        return F.mse_loss(ratio, target)
 
-        return l / len(target)
+
+class SDLoss(nn.Module):
+    r"""Score Distillation Loss (SDLoss)"""
+
+    def forward(
+        self,
+        score: torch.Tensor,  # grad log r(theta_a | x)
+        target: torch.Tensor,  # grad log r(theta | x)
+    ) -> torch.Tensor:
+        r"""Score Distillation Loss (SDLoss)"""
+
+        return F.mse_loss(score, target, reduction='sum') / score.size(0)

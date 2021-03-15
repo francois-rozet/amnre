@@ -181,3 +181,37 @@ def stack2d(matrix: List[List[torch.Tensor]]) -> torch.Tensor:
         torch.stack(row, dim=-1)
         for row in matrix
     ], dim=-2)
+
+
+if __name__ == '__main__':
+    import argparse
+    import json
+    import os
+
+    parser = argparse.ArgumentParser(description='Samples')
+
+    parser.add_argument('simulator', choices=['SLCP', 'MLCP'], help='simulator')
+
+    parser.add_argument('-n', type=int, default=10, help='number of samples')
+    parser.add_argument('-seed', type=int, default=0, help='random seed')
+
+    args = parser.parse_args()
+
+    # Simulator
+    if args.simulator == 'MLCP':
+        simulator = MLCP()
+    else:  # args.simulator == 'SCLP'
+        simulator = SLCP()
+
+    # Seed
+    torch.manual_seed(args.seed)
+
+    # Samples
+    thetas, xs = simulator.sample((args.n,))
+
+    # Export
+    for i, (theta, x) in enumerate(zip(thetas, xs)):
+        sample = {'theta': theta.tolist(), 'x': x.tolist()}
+
+        with open(args.simulator + f'_{i}.json', 'w') as f:
+            json.dump(sample, f, indent=4)

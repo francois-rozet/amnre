@@ -9,10 +9,11 @@ from torchist import *
 from typing import List, Union
 
 
-Number = Union[int, float]
-ArrayLike = Union[Number, List[Number], np.ndarray, torch.Tensor]
+Scalar = Union[int, float]
+ArrayLike = Union[Scalar, List[Scalar], np.ndarray, torch.Tensor]
 
 
+plt.rcParams['axes.axisbelow'] = True
 plt.rcParams['axes.grid'] = True
 plt.rcParams['figure.autolayout'] = True
 plt.rcParams['font.size'] = 12.
@@ -20,21 +21,22 @@ plt.rcParams['legend.fontsize'] = 'small'
 plt.rcParams['savefig.transparent'] = True
 
 
-def pairify(hist: torch.Tensor) -> List[List[torch.Tensor]]:
-    r"""Pairwise-ify histogram"""
+def get_pairs(hist: torch.Tensor) -> List[List[torch.Tensor]]:
+    r"""Get pairwise histograms"""
 
     hists = []
 
-    for i in range(hist.dim()):
-        hists.append([])
+    for i in reversed(range(hist.dim())):
+        hists.insert(0, [])
 
         for j in range(i + 1):
-            h = marginalize(hist, dim=[i, j], keep=True).t()
-
+            h = marginalize(hist, dim=[i, j], keep=True)
             if h.is_sparse:
                 h = h.to_dense()
 
-            hists[i].append(h.cpu())
+            hists[0].append(h.cpu())
+
+        hist = marginalize(hist, dim=i)
 
     return hists
 
@@ -43,6 +45,7 @@ def corner(
     hists: List[List[ArrayLike]],
     low: ArrayLike,
     high: ArrayLike,
+    truth: ArrayLike = None,
     percentiles: ArrayLike = [.1974, .3829, .6827, .8664, .9545, .9973],
     labels: List[str] = [],
     **fig_kwargs,
@@ -54,33 +57,33 @@ def corner(
     fig_kwargs.setdefault('figsize', (D * 4.8,) * 2)
     fig, axs = plt.subplots(D, D, squeeze=False, **fig_kwargs)
 
-    low, high = np.asarray(low), np.asarray(high)
     percentiles = np.sort(np.asarray(percentiles))
     percentiles = np.append(percentiles[::-1], 0.)
 
     for i in range(D):
         for j in range(D):
+            # Only lower triangle
             if j > i:
                 axs[i, j].axis('off')
                 continue
 
+            # Data
             ax = axs[i, j]
-            hist = np.asarray(hists[i][j])
+            hist = np.asarray(hists[i][j]).T
+            x = np.linspace(low[j], high[j], hist.shape[-1])
+            y = np.linspace(low[i], high[i], hist.shape[0])
 
+            # Draw
             if i == j:
-                x = np.linspace(low[i], high[i], hist.shape[0])
-
                 ax.step(x, hist, color='k', linewidth=1.)
             else:
-                x = np.linspace(low[j], high[j], hist.shape[1])
-                y = np.linspace(low[i], high[i], hist.shape[0])
-
                 levels = coverage(hist, percentiles)
 
                 cf = ax.contourf(
                     x, y, hist,
                     levels=levels,
-                    cmap=NonLinearColormap('Blues', levels)
+                    cmap=NonLinearColormap('Blues', levels),
+                    alpha=0.8,
                 )
                 ax.contour(cf, colors='k', linewidths=1.)
 
@@ -93,12 +96,21 @@ def corner(
             ax.label_outer()
             ax.set_box_aspect(1.)
 
+            # Labels
             if labels:
                 if i == D - 1:
                     ax.set_xlabel(labels[j])
 
                 if j == 0 and i != j:
                     ax.set_ylabel(labels[i])
+
+            # Truth
+            if truth is not None:
+                ax.axvline(truth[j], color='darkorange', linewidth=1.5)
+
+                if i != j:
+                    ax.axhline(truth[i], color='darkorange', linewidth=1.5)
+                    ax.plot(truth[j], truth[i], color='darkorange', marker='s', markersize=3.)
 
     return fig
 

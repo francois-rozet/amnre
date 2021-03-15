@@ -33,29 +33,6 @@ class AttentiveLinear(nn.Module):
         return weight @ input + bias
 
 
-class Flatten(nn.Module):
-    r"""Flattening module
-
-    Args:
-        input_shape: The input shape.
-    """
-
-    def __init__(self, input_shape: Shape):
-        super().__init__()
-
-        if type(input_shape) is int:
-            input_shape = (input_shape,)
-
-        self.input_shape = torch.Size(input_shape)
-
-    @property
-    def output_size(self):
-        return self.input_shape.numel()
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        return input.flatten(-len(self.input_shape))
-
-
 class MLP(nn.Sequential):
     r"""Multi-Layer Perceptron (MLP)
 
@@ -71,23 +48,23 @@ class MLP(nn.Sequential):
 
     def __init__(
         self,
-        input_shape: Shape,
+        input_size: int,
         output_size: int = 1,
         hidden_size: int = 64,
         num_layers: int = 2,
         bias: bool = True,
         dropout: float = 0.,
-        activation: Callable[[int], nn.Module] = nn.PReLU,
+        activation: Callable[[int], nn.Module] = nn.SELU,
     ):
         if dropout > 0.:
             dropout = nn.Dropout(dropout)
         else:
             dropout = nn.Identity()
 
-        layers = [Flatten(input_shape)]
+        layers = [nn.Flatten()]
 
         layers.extend([
-            nn.Linear(layers[0].output_size, hidden_size, bias),
+            nn.Linear(input_size, hidden_size, bias),
             activation(hidden_size),
             dropout,
         ])
@@ -103,7 +80,7 @@ class MLP(nn.Sequential):
 
         super().__init__(*layers)
 
-        self.input_shape = input_shape
+        self.input_size = input_size
         self.output_size = output_size
 
 
@@ -151,18 +128,20 @@ class MNRE(nn.Module):
     def __init__(
         self,
         masks: torch.BoolTensor,
-        encoder: nn.Module = nn.Identity(),
         x_size: int = None,
+        encoder: nn.Module = None,
         **kwargs,
     ) -> torch.Tensor:
         super().__init__()
 
         self.register_buffer('masks', masks)
 
+        if encoder is None:
+            encoder = nn.Flatten()
         self.encoder = encoder
 
-        if hasattr(encoder, 'output_size'):
-            x_size = encoder.output_size
+        if hasattr(self.encoder, 'output_size'):
+            x_size = self.encoder.output_size
 
         self.nres = nn.ModuleList([
             NRE(theta_size, x_size, **kwargs)
@@ -172,7 +151,7 @@ class MNRE(nn.Module):
     def __len__(self):
         return len(self.nres)
 
-    def __getitem__(self, i: int) -> Tuple[torch.Tensor, nn.Module]:
+    def __getitem__(self, i: int) -> Tuple[torch.BoolTensor, nn.Module]:
         return self.masks[i], self.nres[i]
 
     def forward(

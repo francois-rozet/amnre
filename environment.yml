@@ -11,4 +11,5 @@ dependencies:
   - pip:
     - matplotlib==3.3.4
     - pandas==1.2.1
+    - torchist==0.1.0
     - tqdm==4.56.0

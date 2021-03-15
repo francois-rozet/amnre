@@ -14,7 +14,7 @@ from torch.distributions import (
 
 from typing import Iterable, List, Union
 
-from simulators import Simulator
+from .simulators import Simulator
 
 
 class Transition:
@@ -77,7 +77,6 @@ class MetropolisHastings(data.IterableDataset):
 
         return self.log_prob(x).exp()
 
-    @torch.no_grad()
     def __iter__(self) -> Iterable[torch.Tensor]:
         r""" x_i ~ p(x) """
 
@@ -152,7 +151,6 @@ class MetropolisHastings(data.IterableDataset):
         else:
             return seq
 
-    @torch.no_grad()
     def histogram(
         self,
         bins: Union[int, List[int]],
@@ -175,9 +173,9 @@ class MetropolisHastings(data.IterableDataset):
 
         for l, h, b in zip(low, high, bins):
             step = (h - l) / b
-            volume *= step
+            volume = volume * step
 
-            dom = torch.linspace(l, h - step, b) + step / 2
+            dom = torch.linspace(l, h - step, b).to(step) + step / 2.
             domains.append(dom)
 
         grid = torch.stack(torch.meshgrid(*domains), dim=-1)
@@ -196,7 +194,7 @@ class MetropolisHastings(data.IterableDataset):
         p = torch.cat(p).view(bins)
 
         # Scale w.r.t. cell volume
-        p *= volume
+        p = p * volume
 
         return p
 
@@ -242,21 +240,21 @@ class TractableSampler(PosteriorSampler):
         return self.simulator.log_prob(theta, self.x)
 
 
-class NRESampler(PosteriorSampler):
-    r"""Neural Ratio Estimator Sampler (NRESampler)"""
+class RESampler(PosteriorSampler):
+    r"""Ratio Estimator Sampler (RESampler)"""
 
     def __init__(
         self,
-        nre: nn.Module,
+        re: nn.Module,
         prior: Distribution,
         x: torch.Tensor,
         **kwargs
     ):
         super().__init__(prior, x, **kwargs)
 
-        self.nre = nre
+        self.re = re
 
     def log_prob(self, theta: torch.Tensor) -> torch.Tensor:
         r""" log p(theta | x) """
 
-        return self.nre(theta, self.x) + self.prior.log_prob(theta)
+        return self.re(theta, self.x) + self.prior.log_prob(theta)
