@@ -84,7 +84,7 @@ class MLP(nn.Sequential):
         self.output_size = output_size
 
 
-class NRE(MLP):
+class NRE(nn.Module):
     r"""Neural Ratio Estimator (NRE)
 
     (theta, x) ---> log r(theta | x)
@@ -92,6 +92,8 @@ class NRE(MLP):
     Args:
         theta_size: The size of the parameters.
         x_size: The size of the observations.
+            Ignored if `encoder` has `output_size`.
+        encoder: An optional encoder for the observations.
 
         **kwargs are transmitted to `MLP`.
     """
@@ -99,13 +101,21 @@ class NRE(MLP):
     def __init__(
         self,
         theta_size: int,
-        x_size: int,
+        x_size: int = None,
+        encoder: nn.Module = nn.Flatten(),
         **kwargs,
     ):
-        super().__init__(theta_size + x_size, 1, **kwargs)
+        super().__init__()
+
+        self.encoder = encoder
+        if hasattr(self.encoder, 'output_size'):
+            x_size = self.encoder.output_size
+
+        self.mlp = MLP(theta_size + x_size, 1, **kwargs)
 
     def forward(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
-        return super().forward(torch.cat([theta, x], dim=-1)).squeeze(-1)
+        x = self.encoder(x)
+        return self.mlp(torch.cat([theta, x], dim=-1)).squeeze(-1)
 
 
 class MNRE(nn.Module):
@@ -119,8 +129,9 @@ class MNRE(nn.Module):
 
     Args:
         masks: The masks of the considered subsets of the parameters.
+        x_size: The size of the observations.
+            Ignored if `encoder` has `output_size`.
         encoder: An optional encoder for the observations.
-        x_size: The size of the (encoded) observations.
 
         **kwargs are transmitted to `NRE`.
     """
@@ -129,22 +140,19 @@ class MNRE(nn.Module):
         self,
         masks: torch.BoolTensor,
         x_size: int = None,
-        encoder: nn.Module = None,
+        encoder: nn.Module = nn.Flatten(),
         **kwargs,
     ) -> torch.Tensor:
         super().__init__()
 
         self.register_buffer('masks', masks)
 
-        if encoder is None:
-            encoder = nn.Flatten()
         self.encoder = encoder
-
         if hasattr(self.encoder, 'output_size'):
             x_size = self.encoder.output_size
 
         self.nres = nn.ModuleList([
-            NRE(theta_size, x_size, **kwargs)
+            NRE(theta_size, x_size, nn.Identity(), **kwargs)
             for theta_size in self.masks.sum(dim=-1).tolist()
         ])
 

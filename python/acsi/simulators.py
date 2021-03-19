@@ -213,5 +213,5 @@ if __name__ == '__main__':
     for i, (theta, x) in enumerate(zip(thetas, xs)):
         sample = {'theta': theta.tolist(), 'x': x.tolist()}
 
-        with open(args.simulator + f'_{i}.json', 'w') as f:
+        with open(args.simulator + f'{i}.json', 'w') as f:
             json.dump(sample, f, indent=4)

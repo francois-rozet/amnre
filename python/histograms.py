@@ -6,11 +6,13 @@ import numpy as np
 import torch
 
 from torchist import *
+from torchist.metrics import *
 from typing import List, Union
 
 
-Scalar = Union[int, float]
-ArrayLike = Union[Scalar, List[Scalar], np.ndarray, torch.Tensor]
+Scalar = Union[bool, int, float]
+Vector = Union[List[Scalar], np.ndarray, torch.Tensor]
+Array = Union[List[List[Scalar]], np.ndarray, torch.Tensor]
 
 
 plt.rcParams['axes.axisbelow'] = True
@@ -21,9 +23,13 @@ plt.rcParams['legend.fontsize'] = 'small'
 plt.rcParams['savefig.transparent'] = True
 
 
-def get_pairs(hist: torch.Tensor) -> List[List[torch.Tensor]]:
-    r"""Get pairwise histograms"""
+def sparse_histogram(*args):
+    hist = reduce_histogramdd(*args, bounded=True, sparse=True, device='cpu')
 
+    return hist
+
+
+def get_pairs(hist: torch.Tensor) -> List[List[torch.Tensor]]:
     hists = []
 
     for i in reversed(range(hist.dim())):
@@ -37,17 +43,27 @@ def get_pairs(hist: torch.Tensor) -> List[List[torch.Tensor]]:
             hists[0].append(h.cpu())
 
         hist = marginalize(hist, dim=i)
+        if hist.is_sparse:
+            hist = hist.coalesce()
 
     return hists
 
 
+def get_labels(mask: Vector) -> List[str]:
+    return [
+        f'$\\theta_{{{i}}}$'
+        for (i, b) in enumerate(mask, start=1) if b
+    ]
+
+
 def corner(
-    hists: List[List[ArrayLike]],
-    low: ArrayLike,
-    high: ArrayLike,
-    truth: ArrayLike = None,
-    percentiles: ArrayLike = [.1974, .3829, .6827, .8664, .9545, .9973],
+    hists: List[List[Array]],
+    low: Vector,
+    high: Vector,
+    percentiles: Vector = [.1974, .3829, .6827, .8664, .9545, .9973],
     labels: List[str] = [],
+    truth: Vector = None,
+    filename: str = None,
     **fig_kwargs,
 ) -> mpl.figure.Figure:
     r"""Pairwise corner plot"""
@@ -106,16 +122,25 @@ def corner(
 
             # Truth
             if truth is not None:
-                ax.axvline(truth[j], color='darkorange', linewidth=1.5)
-
                 if i != j:
-                    ax.axhline(truth[i], color='darkorange', linewidth=1.5)
-                    ax.plot(truth[j], truth[i], color='darkorange', marker='s', markersize=3.)
+                    ax.plot(
+                        truth[j], truth[i],
+                        color='darkorange',
+                        marker='*',
+                        markersize=6.,
+                    )
 
-    return fig
+    # Save file
+    if filename is not None:
+        plt.savefig(filename)
+        plt.close()
+
+        return None
+    else:
+        return fig
 
 
-def coverage(x: np.ndarray, percentiles: ArrayLike) -> np.ndarray:
+def coverage(x: np.ndarray, percentiles: Vector) -> np.ndarray:
     r"""Coverage percentiles"""
 
     x = np.sort(x, axis=None)[::-1]

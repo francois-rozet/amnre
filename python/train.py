@@ -2,6 +2,7 @@
 
 import json
 import os
+import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -13,47 +14,65 @@ from time import time
 from tqdm import tqdm
 from typing import Tuple
 
-from acsi import *
+import acsi
 
 
-def instance(args) -> Tuple[nn.Module, nn.Module]:
+def build_instance(settings: dict) -> Tuple[nn.Module, nn.Module]:
     # Simulator
-    if args['simulator'] == 'MLCP':
-        simulator = MLCP()
-    else:  # args['simulator'] == 'SCLP'
-        simulator = SLCP()
+    if settings['simulator'] == 'MLCP':
+        simulator = acsi.MLCP()
+    else:  # settings['simulator'] == 'SCLP'
+        simulator = acsi.SLCP()
 
     theta, x = simulator.sample()
 
     # Masks
     D = theta.size(0)
 
-    if args['masks'] == 'tri-right':
-        masks = [[False] * (D - i) + [True] * i for i in range(1, D + 1)]
-    elif args['masks'] == 'tri-left':
-        masks = [[True] * i + [False] * (D - i) for i in range(1, D + 1)]
-    else:  # args['masks'] == 'pairs'
-        masks = []
+    masks = []
 
-        for i in range(D):
-            for j in range(i + 1):
-                masks.append([k in [i, j] for k in range(D)])
-
-        masks.append([True] * D)
+    for string in settings['masks']:
+        if string == 'triangle':
+            masks.extend(
+                [False] * (D - i) + [True] * i
+                for i in range(1, D + 1)
+            )
+        elif string == 'singles':
+            for i in range(D):
+                masks.append([j == i for j in range(D)])
+        elif string == 'pairs':
+            for i in range(D):
+                for j in range(i):
+                    masks.append([k in [i, j] for k in range(D)])
+        elif string == 'triples':
+            for i in range(D):
+                for j in range(i):
+                    for k in range(j):
+                        masks.append([l in [i, j, k] for l in range(D)])
+        else:
+            masks.append([c == '1' for c in islice(string, D)])
 
     masks = torch.tensor(masks)
 
     # Model & Encoder
     x_size = x.numel()
 
-    if args['encoder'] is None:
-        encoder = None
+    if settings['encoder'] is None:
+        encoder = nn.Flatten()
     else:
-        a, b, c = args['encoder']
-        encoder = MLP(x_size, output_size=c, num_layers=a, hidden_size=b)
+        a, b, c = settings['encoder']
+        encoder = acsi.MLP(x_size, output_size=c, num_layers=a, hidden_size=b)
 
-    a, b = args['model']
-    model = MNRE(masks, x_size=x_size, encoder=encoder, num_layers=a, hidden_size=b)
+    a, b = settings['model']
+    if len(masks) > 0:
+        model = acsi.MNRE(masks, x_size, encoder=encoder, num_layers=a, hidden_size=b)
+    else:
+        model = acsi.NRE(D, x_size, encoder=encoder, num_layers=a, hidden_size=b)
+
+    # Load
+    if settings['weights'] is not None:
+        weights = torch.load(settings['weights'], map_location='cpu')
+        model.load_state_dict(weights)
 
     return simulator, model
 
@@ -67,10 +86,9 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--path', default='../products', help='output path')
 
     parser.add_argument('-simulator', default='SLCP', choices=['SLCP', 'MLCP'])
-    parser.add_argument('-masks', default='tri-right', choices=['tri-left', 'tri-right', 'pairs'])
+    parser.add_argument('-masks', nargs='+', default=[])
     parser.add_argument('-model', type=int, nargs=2, default=[10, 512], help='model architecture')
     parser.add_argument('-encoder', type=int, nargs=3, default=None, help='encoder architecture')
-
     parser.add_argument('-weights', default=None, help='warm-start weights')
 
     parser.add_argument('-epochs', type=int, default=100, help='number of epochs')
@@ -82,34 +100,22 @@ if __name__ == '__main__':
     parser.add_argument('-patience', type=int, default=10, help='scheduler patience')
     parser.add_argument('-threshold', type=float, default=1e-2, help='scheduler threshold')
     parser.add_argument('-factor', type=float, default=1e-1, help='scheduler factor')
-    parser.add_argument('-min-lr', type=float, default=1e-6, help='scheduler minimum learning rate')
-
-    parser.add_argument('-alpha', type=float, nargs=3, default=[1., 0., 0.], help='loss weights')
+    parser.add_argument('-min-lr', type=float, default=1e-6, help='minimum learning rate')
 
     args = parser.parse_args()
-    args.date = datetime.now().strftime('%Y%m%d_%H%M%S')
+    args.date = datetime.now().strftime('%y%m%d_%H%M%S')
 
     # Device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    torch.backends.cudnn.enabled = True
-    torch.backends.cudnn.benchmark = True
 
     # Simulator & Model
-    simulator, model = instance(vars(args))
+    simulator, model = build_instance(vars(args))
 
     simulator.to(device)
     model.to(device)
 
-    if args.weights is not None:
-        model.load_state_dict(torch.load(args.weights, map_location=device))
-
-    # Dataset
-    trainset = LTEDataset(simulator, args.batch_size)
-
     # Criterion(s)
-    criterion = RELoss()
-    rd_loss = RDLoss()
-    sd_loss = SDLoss()
+    criterion = acsi.RELoss()
 
     # Optimizer & Scheduler
     optimizer = optim.Adam(
@@ -128,70 +134,25 @@ if __name__ == '__main__':
     )
 
     # Training
-    _, full = model[-1]
-    alpha, beta, gamma = args.alpha
+    trainset = acsi.LTEDataset(simulator, args.batch_size)
 
     stats = []
 
-    for epoch in tqdm(range(args.epochs)):
+    for epoch in tqdm(range(1, args.epochs + 1)):
         losses = []
 
         start = time()
 
         for theta, theta_prime, x in islice(trainset, args.per_epoch):
-            loss = []
+            ratio = model(theta, x)
+            ratio_prime = model(theta_prime, x)
 
-            if alpha > 0.:
-                ratio = model(theta, x)
-                ratio_prime = model(theta_prime, x)
+            l = criterion(ratio, ratio_prime)
 
-                l = criterion(ratio, ratio_prime)
-                loss.append(alpha * l)
-
-            if beta > 0. or gamma > 0.:
-                with torch.no_grad():
-                    z = model.encoder(x)
-
-                rdl, sdl = 0., 0. # ratio & score distillation loss
-
-                for mask, nre in model:
-                    if torch.all(mask):
-                        continue
-
-                    mix = torch.where(mask, theta, theta_prime)
-                    mix.requires_grad = True
-
-                    ratio = nre(mix[..., mask], z)
-                    target_ratio = full(mix, z)
-
-                    if beta > 0.:
-                        rdl = rdl + rd_loss(ratio, target_ratio.detach())
-
-                    if gamma > 0.:
-                        score = torch.autograd.grad(
-                            ratio, mix,
-                            torch.ones_like(ratio),
-                            create_graph=True
-                        )[0]
-
-                        target_score = torch.autograd.grad(
-                            target_ratio, mix,
-                            torch.ones_like(target_ratio)
-                        )[0]
-
-                        sdl = sdl + sd_loss(score, target_score.detach())
-
-                if beta > 0.:
-                    loss.append(beta * rdl)
-
-                if gamma > 0.:
-                    loss.append(gamma * sdl)
-
-            loss = torch.stack(loss)
-            losses.append(loss.tolist())
+            losses.append(l.item())
 
             optimizer.zero_grad()
-            loss.sum().backward()
+            l.backward()
             optimizer.step()
 
         end = time()
@@ -200,24 +161,26 @@ if __name__ == '__main__':
         losses = torch.tensor(losses)
 
         stats.append({
-            'epoch': epoch + 1,
+            'epoch': epoch,
             'time': end - start,
             'lr': optimizer.param_groups[0]['lr'],
-            'mean': losses.mean(dim=0).tolist(),
-            'std': losses.std(dim=0).tolist(),
+            'mean': losses.mean().item(),
+            'std': losses.std().item(),
         })
 
         ## Scheduler
-        scheduler.step(losses.mean())
+        scheduler.step(stats[-1]['mean'])
 
     # Output
     if args.output is None:
-        args.output = os.path.join(args.path, args.date)
+        args.output = os.path.join(args.path, args.date).replace('\\', '/')
+    else:
+        args.path = os.path.dirname(args.output)
 
-    if os.path.dirname(args.output):
-        os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    if args.path:
+        os.makedirs(args.path, exist_ok=True)
 
-    ## Setup
+    ## Settings
     with open(args.output + '.json', 'w') as f:
         json.dump(vars(args), f, indent=4)
 
