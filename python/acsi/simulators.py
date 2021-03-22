@@ -18,9 +18,6 @@ from typing import Tuple, List
 class Simulator(nn.Module):
     r"""Abstract Simulator"""
 
-    def __init__(self):
-        super().__init__()
-
     @property
     def prior(self) -> Distribution:
         r""" p(theta) """

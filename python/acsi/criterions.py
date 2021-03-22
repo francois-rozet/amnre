@@ -26,29 +26,6 @@ class WeightedLoss(nn.Module):
         return self.weight * self.loss(*args, **kwargs)
 
 
-class CompositeLoss(nn.Module):
-    r"""Composite Loss"""
-
-    def __init__(self, losses: List[nn.Module], weights: List[float] = None):
-        super().__init__()
-
-        if weights is None:
-            weights = [None] * len(losses)
-
-        self.losses = nn.ModuleList([
-            WeightedLoss(l, w)
-            for (l, w) in zip(losses, weights)
-        ])
-
-    def forward(self, *args, **kwargs) -> torch.Tensor:
-        l = torch.tensor(0.)
-
-        for loss in self.losses:
-            l = l + loss(*args, **kwargs)
-
-        return l
-
-
 class RMSELoss(nn.Module):
     r"""Root Mean Squared Error Loss (RMSELoss)"""
 
@@ -104,6 +81,5 @@ class SDLoss(nn.Module):
         score: torch.Tensor,  # grad log r(theta_a | x)
         target: torch.Tensor,  # grad log r(theta | x)
     ) -> torch.Tensor:
-        r"""Score Distillation Loss (SDLoss)"""
 
         return F.mse_loss(score, target, reduction='sum') / score.size(0)

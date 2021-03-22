@@ -12,6 +12,8 @@ if __name__ == '__main__':
     parser.add_argument('settings', help='settings file (JSON)')
     parser.add_argument('truth', help='truth sample file (JSON)')
 
+    parser.add_argument('-masks', nargs='+', default=[], help='marginalzation masks')
+
     parser.add_argument('-plots', default=False, action='store_true')
 
     parser.add_argument('-batch-size', type=int, default=2 ** 12, help='batch size')
@@ -40,6 +42,13 @@ if __name__ == '__main__':
     simulator.to(device)
     model.to(device)
     model.eval()
+
+    # Masks
+    if args.masks:
+        D = simulator.prior.sample().numel()
+        masks = build_masks(args.masks, D).to(device)
+    else:
+        masks = model.masks
 
     # Ground Truth
 
@@ -94,11 +103,16 @@ if __name__ == '__main__':
     divergences = []
 
     with torch.no_grad():
-        z_star = model.encoder(x_star.unsqueeze(0)).squeeze(0)
+        model.set_encode(False)
+        z_star = model.encoder(x_star)
 
-        for mask, nre in model:
+        for mask in masks:
             size = args.bins ** torch.count_nonzero(mask)
             if size > args.limit:
+                continue
+
+            nre = model[mask]
+            if nre is None:
                 continue
 
             ## Hist
@@ -113,7 +127,7 @@ if __name__ == '__main__':
             hist = sampler.histogram(args.bins, low[mask], high[mask])
 
             ## Plot
-            textmask = ''.join(map(str, map(int, mask)))
+            textmask = acsi.mask2str(mask)
 
             if args.plots:
                 pairs = get_pairs(hist)
@@ -151,7 +165,8 @@ if __name__ == '__main__':
                 common = torch.logical_and(mask, m)
 
                 if torch.all(~common):
-                    divergences.append(0.)
+                    divergences[i].append(0.)
+                    divergences[-1].append(0.)
                     continue
 
                 dims = mask.cumsum(0)[common] - 1

@@ -149,7 +149,7 @@ class MetropolisHastings(data.IterableDataset):
             if buff:
                 yield torch.cat(buff)
         else:
-            return seq
+            yield from seq
 
     def histogram(
         self,
