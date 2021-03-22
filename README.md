@@ -1,4 +1,4 @@
-# Arbitrary Conditional Simultation-based Inference
+# Arbitrary Marginal Simultation-based Inference
 
 ## References
 

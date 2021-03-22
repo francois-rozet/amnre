@@ -65,7 +65,7 @@ if __name__ == '__main__':
     filename = args.truth.replace('.json', '.pth')
 
     if not os.path.exists(filename):
-        sampler = acsi.TractableSampler(
+        sampler = amsi.TractableSampler(
             simulator,
             x_star,
             batch_size=args.batch_size,
@@ -116,7 +116,7 @@ if __name__ == '__main__':
                 continue
 
             ## Hist
-            sampler = acsi.RESampler(
+            sampler = amsi.RESampler(
                 nre,
                 simulator.subprior(mask),
                 z_star,
@@ -127,7 +127,7 @@ if __name__ == '__main__':
             hist = sampler.histogram(args.bins, low[mask], high[mask])
 
             ## Plot
-            textmask = acsi.mask2str(mask)
+            textmask = amsi.mask2str(mask)
 
             if args.plots:
                 pairs = get_pairs(hist)

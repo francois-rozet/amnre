@@ -1,4 +1,4 @@
-r"""Arbitrary Conditional Simulation-based Inference"""
+r"""Arbitrary Marginal Simulation-based Inference"""
 
 from .criterions import *
 from .datasets import *

@@ -14,13 +14,13 @@ from time import time
 from tqdm import tqdm
 from typing import List, Tuple
 
-import acsi
+import amsi
 
 
 def build_masks(strings: List[str], theta_size: int) -> torch.BoolTensor:
     masks = []
 
-    every = acsi.enumerate_masks(theta_size)
+    every = amsi.enumerate_masks(theta_size)
     sizes = every.sum(dim=1)
 
     for s in strings:
@@ -28,7 +28,7 @@ def build_masks(strings: List[str], theta_size: int) -> torch.BoolTensor:
             select = every.sum(dim=1) == int(s[1:])
             masks.append(every[select])
         else:
-            mask = acsi.str2mask(s)[:theta_size]
+            mask = amsi.str2mask(s)[:theta_size]
             masks.append(mask.unsqueeze(0))
 
     return torch.cat(masks) if masks else None
@@ -37,9 +37,9 @@ def build_masks(strings: List[str], theta_size: int) -> torch.BoolTensor:
 def build_instance(settings: dict) -> Tuple[nn.Module, nn.Module]:
     # Simulator
     if settings['simulator'] == 'MLCP':
-        simulator = acsi.MLCP()
+        simulator = amsi.MLCP()
     else:  # settings['simulator'] == 'SCLP'
-        simulator = acsi.SLCP()
+        simulator = amsi.SLCP()
 
     theta, x = simulator.sample()
 
@@ -54,16 +54,16 @@ def build_instance(settings: dict) -> Tuple[nn.Module, nn.Module]:
         encoder = nn.Flatten(-len(x.shape))
     else:
         a, b, c = settings['encoder']
-        encoder = acsi.MLP(x.shape, output_size=c, num_layers=a, hidden_size=b)
+        encoder = amsi.MLP(x.shape, output_size=c, num_layers=a, hidden_size=b)
 
     a, b = settings['model']
     if settings['arbitrary']:
-        model = acsi.AMNRE(theta_size, x_size, masks=masks, encoder=encoder, num_layers=a, hidden_size=b)
+        model = amsi.AMNRE(theta_size, x_size, masks=masks, encoder=encoder, num_layers=a, hidden_size=b)
     else:
         if masks is None:
-            model = acsi.NRE(theta_size, x_size, encoder=encoder, num_layers=a, hidden_size=b)
+            model = amsi.NRE(theta_size, x_size, encoder=encoder, num_layers=a, hidden_size=b)
         else:
-            model = acsi.MNRE(masks, x_size, encoder=encoder, num_layers=a, hidden_size=b)
+            model = amsi.MNRE(masks, x_size, encoder=encoder, num_layers=a, hidden_size=b)
 
     # Load
     if settings['weights'] is not None:
@@ -112,7 +112,7 @@ if __name__ == '__main__':
     model.to(device)
 
     # Criterion(s)
-    criterion = acsi.RELoss()
+    criterion = amsi.RELoss()
 
     # Optimizer & Scheduler
     optimizer = optim.Adam(
@@ -131,7 +131,7 @@ if __name__ == '__main__':
     )
 
     # Dataset
-    trainset = acsi.LTEDataset(simulator, args.batch_size)
+    trainset = amsi.LTEDataset(simulator, args.batch_size)
 
     # Training
     stats = []
