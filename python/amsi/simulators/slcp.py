@@ -14,38 +14,7 @@ from torch.distributions import (
 
 from typing import Tuple, List
 
-
-class Simulator(nn.Module):
-    r"""Abstract Simulator"""
-
-    @property
-    def prior(self) -> Distribution:
-        r""" p(theta) """
-
-        raise NotImplementedError()
-
-    def likelihood(self, theta: torch.Tensor) -> Distribution:
-        r""" p(x | theta) """
-
-        raise NotImplementedError()
-
-    def log_prob(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
-        r""" log p(theta) p(x | theta) """
-
-        return self.prior.log_prob(theta) + self.likelihood(theta).log_prob(x)
-
-    def forward(self, theta: torch.Tensor) -> torch.Tensor:
-        r""" x ~ p(x | theta) """
-
-        return self.likelihood(theta).sample()
-
-    def sample(self, batch_size: torch.Size = ()) -> Tuple[torch.Tensor, torch.Tensor]:
-        r""" (theta, x) ~ p(theta) p(x | theta) """
-
-        theta = self.prior.sample(batch_size)
-        x = self.__call__(theta)
-
-        return theta, x
+from . import Simulator
 
 
 class SLCP(Simulator):
@@ -54,16 +23,10 @@ class SLCP(Simulator):
     def __init__(self, lim: float = 3.):
         super().__init__()
 
-        self.register_buffer('low', -lim * torch.ones(5))
-        self.register_buffer('high', lim * torch.ones(5))
+        self.register_buffer('low', torch.full((5,), -lim))
+        self.register_buffer('high', torch.full((5,), lim))
 
-    @property
-    def prior(self) -> Distribution:
-        r""" p(theta) """
-
-        return Independent(Uniform(self.low, self.high), 1)
-
-    def subprior(self, mask: torch.BoolTensor) -> Distribution:
+    def masked_prior(self, mask: torch.BoolTensor) -> Distribution:
         r""" p(theta_a) """
 
         return Independent(Uniform(self.low[mask], self.high[mask]), 1)
@@ -100,8 +63,8 @@ class MLCP(SLCP):
     def __init__(self, lim: float = 3.):
         super().__init__()
 
-        self.register_buffer('low', -lim * torch.ones(8))
-        self.register_buffer('high', lim * torch.ones(8))
+        self.register_buffer('low', torch.full((8,), -lim))
+        self.register_buffer('high', torch.full((8,), lim))
 
     def likelihood(self, theta: torch.Tensor, eps: float = 1e-8) -> Distribution:
         r""" p(x | theta) """
@@ -178,37 +141,3 @@ def stack2d(matrix: List[List[torch.Tensor]]) -> torch.Tensor:
         torch.stack(row, dim=-1)
         for row in matrix
     ], dim=-2)
-
-
-if __name__ == '__main__':
-    import argparse
-    import json
-    import os
-
-    parser = argparse.ArgumentParser(description='Samples')
-
-    parser.add_argument('simulator', choices=['SLCP', 'MLCP'], help='simulator')
-
-    parser.add_argument('-n', type=int, default=10, help='number of samples')
-    parser.add_argument('-seed', type=int, default=0, help='random seed')
-
-    args = parser.parse_args()
-
-    # Simulator
-    if args.simulator == 'MLCP':
-        simulator = MLCP()
-    else:  # args.simulator == 'SCLP'
-        simulator = SLCP()
-
-    # Seed
-    torch.manual_seed(args.seed)
-
-    # Samples
-    thetas, xs = simulator.sample((args.n,))
-
-    # Export
-    for i, (theta, x) in enumerate(zip(thetas, xs)):
-        sample = {'theta': theta.tolist(), 'x': x.tolist()}
-
-        with open(args.simulator + f'{i}.json', 'w') as f:
-            json.dump(sample, f, indent=4)

@@ -7,7 +7,15 @@ from typing import Callable, Iterable, Tuple, Union
 
 from .utils import enumerate_masks
 
-Shape = Union[int, Iterable[int]]
+
+ACTIVATIONS = {
+    'ReLU': nn.ReLU,
+    'PReLU': nn.PReLU,
+    'ELU': nn.ELU,
+    'CELU': nn.CELU,
+    'SELU': nn.SELU,
+    'GELU': nn.GELU,
+}
 
 
 class AttentiveLinear(nn.Module):
@@ -51,7 +59,7 @@ class MLP(nn.Sequential):
         hidden_size: The size of hidden layers.
         bias: Whether to use bias or not.
         dropout: The dropout rate.
-        activation: A callable returning an activation layer.
+        activation: The activation layer type.
         attentive: Whether to use attentive linear layers or not.
     """
 
@@ -63,11 +71,12 @@ class MLP(nn.Sequential):
         num_layers: int = 2,
         bias: bool = True,
         dropout: float = 0.,
-        activation: Callable[[int], nn.Module] = nn.SELU,
+        activation: str = 'ReLU',
         attentive: bool = False,
     ):
         dropout = nn.Dropout(dropout) if dropout > 0. else nn.Identity()
-        linear = AttentiveLayer if attentive else nn.Linear
+        activation = ACTIVATIONS[activation]()
+        linear = AttentiveLinear if attentive else nn.Linear
 
         layers = []
 
@@ -77,14 +86,14 @@ class MLP(nn.Sequential):
 
         layers.extend([
             linear(input_size, hidden_size, bias),
-            activation(hidden_size),
+            activation,
             dropout,
         ])
 
         for i in range(num_layers):
             layers.extend([
-                linear(hidden_size, hidden_size, bias),
-                activation(hidden_size),
+                nn.Linear(hidden_size, hidden_size, bias),
+                activation,
                 dropout,
             ])
 
@@ -103,8 +112,7 @@ class NRE(nn.Module):
 
     Args:
         theta_size: The size of the parameters.
-        x_size: The size of the observations.
-            Ignored if `encoder` has `output_size`.
+        x_size: The size of the (encoded) observations.
         encoder: An optional encoder for the observations.
 
         **kwargs are transmitted to `MLP`.
@@ -121,8 +129,6 @@ class NRE(nn.Module):
 
         self._encode = True
         self.encoder = encoder
-        if hasattr(self.encoder, 'output_size'):
-            x_size = self.encoder.output_size
 
         self.mlp = MLP(theta_size + x_size, 1, **kwargs)
 
@@ -147,8 +153,7 @@ class MNRE(nn.Module):
 
     Args:
         masks: The masks of the considered subsets of the parameters.
-        x_size: The size of the observations.
-            Ignored if `encoder` has `output_size`.
+        x_size: The size of the (encoded) observations.
         encoder: An optional encoder for the observations.
 
         **kwargs are transmitted to `NRE`.
@@ -167,8 +172,6 @@ class MNRE(nn.Module):
 
         self._encode = True
         self.encoder = encoder
-        if hasattr(self.encoder, 'output_size'):
-            x_size = self.encoder.output_size
 
         self.nres = nn.ModuleList([
             NRE(theta_size, x_size, **kwargs)

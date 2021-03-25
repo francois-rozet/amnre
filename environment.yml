@@ -1,15 +1,15 @@
-name: acsi
+name: amsi
 channels:
-  - pytorch
   - defaults
 dependencies:
-  - jupyter=1.0.0
-  - numpy=1.19.2
-  - pip=20.3.3
+  - pip=21.0.1
   - python=3.8.5
-  - pytorch=1.7.1
   - pip:
+    - h5py==3.2.1
     - matplotlib==3.3.4
-    - pandas==1.2.1
-    - torchist==0.1.0
-    - tqdm==4.56.0
+    - numpy==1.19.5
+    - pandas==1.2.3
+    - pycbc==1.18.0
+    - torch==1.8.1
+    - torchist==0.1.2
+    - tqdm==4.59.0

@@ -41,6 +41,7 @@ def build_instance(settings: dict) -> Tuple[nn.Module, nn.Module]:
     else:  # settings['simulator'] == 'SCLP'
         simulator = amsi.SLCP()
 
+    # Placeholders
     theta, x = simulator.sample()
 
     theta_size = theta.numel()
@@ -53,21 +54,31 @@ def build_instance(settings: dict) -> Tuple[nn.Module, nn.Module]:
     if settings['encoder'] is None:
         encoder = nn.Flatten(-len(x.shape))
     else:
-        a, b, c = settings['encoder']
-        encoder = amsi.MLP(x.shape, output_size=c, num_layers=a, hidden_size=b)
+        encoder = amsi.MLP(x.shape, **settings['encoder'])
+        x_size = encoder.output_size
 
-    a, b = settings['model']
+    if settings['model'] is None:
+        settings['model'] = {
+            'num_layers': 10,
+            'hidden_size': 256,
+            'activation': 'SELU',
+        }
+
     if settings['arbitrary']:
-        model = amsi.AMNRE(theta_size, x_size, masks=masks, encoder=encoder, num_layers=a, hidden_size=b)
+        model = amsi.AMNRE(theta_size, x_size, masks=masks, encoder=encoder, **settings['model'])
     else:
         if masks is None:
-            model = amsi.NRE(theta_size, x_size, encoder=encoder, num_layers=a, hidden_size=b)
+            model = amsi.NRE(theta_size, x_size, encoder=encoder, **settings['model'])
         else:
-            model = amsi.MNRE(masks, x_size, encoder=encoder, num_layers=a, hidden_size=b)
+            model = amsi.MNRE(masks, x_size, encoder=encoder, **settings['model'])
+
+    # Device
+    simulator.to(settings['device'])
+    model.to(settings['device'])
 
     # Load
     if settings['weights'] is not None:
-        weights = torch.load(settings['weights'], map_location='cpu')
+        weights = torch.load(settings['weights'], map_location=settings['device'])
         model.load_state_dict(weights)
 
     return simulator, model
@@ -78,15 +89,15 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Training')
 
-    parser.add_argument('-o', '--output', default=None, help='output files basename')
-    parser.add_argument('-p', '--path', default='../products', help='output path')
-
+    parser.add_argument('-device', default='cpu', choices=['cpu', 'cuda'])
     parser.add_argument('-simulator', default='SLCP', choices=['SLCP', 'MLCP'])
     parser.add_argument('-masks', nargs='+', default=[], help='marginalzation masks')
-    parser.add_argument('-model', type=int, nargs=2, default=[10, 512], help='model architecture')
-    parser.add_argument('-encoder', type=int, nargs=3, default=None, help='encoder architecture')
-    parser.add_argument('-weights', default=None, help='warm-start weights')
+    parser.add_argument('-model', type=json.loads, default=None, help='model architecture')
+    parser.add_argument('-encoder', type=json.loads, default=None, help='encoder architecture')
     parser.add_argument('-arbitrary', default=False, action='store_true', help='arbitrary design')
+    parser.add_argument('-weights', default=None, help='warm-start weights')
+
+    parser.add_argument('-samples', default=None, help='samples file (H5)')
 
     parser.add_argument('-epochs', type=int, default=100, help='number of epochs')
     parser.add_argument('-batch-size', type=int, default=1024, help='batch size')
@@ -99,17 +110,13 @@ if __name__ == '__main__':
     parser.add_argument('-factor', type=float, default=1e-1, help='scheduler factor')
     parser.add_argument('-min-lr', type=float, default=1e-6, help='minimum learning rate')
 
+    parser.add_argument('-o', '--output', default='../products/models/out.pth', help='output file (PTH)')
+
     args = parser.parse_args()
     args.date = datetime.now().strftime('%y%m%d_%H%M%S')
 
-    # Device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
     # Simulator & Model
     simulator, model = build_instance(vars(args))
-
-    simulator.to(device)
-    model.to(device)
 
     # Criterion(s)
     criterion = amsi.RELoss()
@@ -131,7 +138,10 @@ if __name__ == '__main__':
     )
 
     # Dataset
-    trainset = amsi.LTEDataset(simulator, args.batch_size)
+    if args.samples:
+        trainset = amsi.OfflineLTEDataset(args.samples, simulator.prior, args.batch_size)
+    else:
+        trainset = amsi.OnlineLTEDataset(simulator, args.batch_size)
 
     # Training
     stats = []
@@ -170,21 +180,16 @@ if __name__ == '__main__':
         scheduler.step(stats[-1]['mean'])
 
     # Output
-    if args.output is None:
-        args.output = os.path.join(args.path, args.date).replace('\\', '/')
-    else:
-        args.path = os.path.dirname(args.output)
-
-    if args.path:
-        os.makedirs(args.path, exist_ok=True)
-
-    ## Settings
-    with open(args.output + '.json', 'w') as f:
-        json.dump(vars(args), f, indent=4)
+    if os.path.dirname(args.output):
+        os.makedirs(os.path.dirname(args.output), exist_ok=True)
 
     ## Weights
-    torch.save(model.cpu().state_dict(), args.output + '.pth')
+    torch.save(model.cpu().state_dict(), args.output)
+
+    ## Settings
+    with open(args.output.replace('.pth', '.json'), 'w') as f:
+        json.dump(vars(args), f, indent=4)
 
     ## Stats
     df = pd.DataFrame(stats)
-    df.to_csv(args.output + '.csv', index=False)
+    df.to_csv(args.output.replace('.pth', '.csv'), index=False)

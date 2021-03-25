@@ -23,12 +23,6 @@ plt.rcParams['legend.fontsize'] = 'small'
 plt.rcParams['savefig.transparent'] = True
 
 
-def sparse_histogram(*args):
-    hist = reduce_histogramdd(*args, bounded=True, sparse=True, device='cpu')
-
-    return hist
-
-
 def get_pairs(hist: torch.Tensor) -> List[List[torch.Tensor]]:
     hists = []
 
@@ -47,13 +41,6 @@ def get_pairs(hist: torch.Tensor) -> List[List[torch.Tensor]]:
             hist = hist.coalesce()
 
     return hists
-
-
-def get_labels(mask: Vector) -> List[str]:
-    return [
-        f'$\\theta_{{{i}}}$'
-        for (i, b) in enumerate(mask, start=1) if b
-    ]
 
 
 def corner(
