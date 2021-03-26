@@ -139,7 +139,7 @@ if __name__ == '__main__':
 
     # Dataset
     if args.samples:
-        trainset = amsi.OfflineLTEDataset(args.samples, simulator.prior, args.batch_size)
+        trainset = amsi.OfflineLTEDataset(args.samples, args.batch_size, device=args.device)
     else:
         trainset = amsi.OnlineLTEDataset(simulator, args.batch_size)
 

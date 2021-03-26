@@ -16,7 +16,7 @@ class OnlineLTEDataset(data.IterableDataset):
     def __init__(
         self,
         simulator: Simulator,
-        batch_size: int = 1024,
+        batch_size: int = 2 ** 10,  # 1024
     ):
         super().__init__()
 
@@ -38,19 +38,24 @@ class OfflineLTEDataset(data.IterableDataset):
     def __init__(
         self,
         filename: str,
-        prior: Distribution,
-        batch_size: int = 1024,
-        pin_memory: bool = False,
+        chunk_size: str = 2 ** 17,  # 131072
+        batch_size: int = 2 ** 10,  # 1024
+        device: str = 'cpu',
     ):
         super().__init__()
 
         self.f = h5py.File(filename, 'r')
-        self.chunks = list(chunk[0] for chunk in self.f['x'].iter_chunks())
 
-        self.prior = prior
-        self.pin = self.prior.sample().is_cuda
+        self.chunks = [
+            slice(i, min(i + chunk_size, len(self)))
+            for i in range(0, len(self), chunk_size)
+        ]
 
-        self.batch_shape = (batch_size,)
+        self.batch_size = batch_size
+        self.device = device
+
+    def __len__(self) -> int:
+        return len(self.f['theta'])
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         theta = torch.from_numpy(self.f['theta'][idx])
@@ -65,14 +70,17 @@ class OfflineLTEDataset(data.IterableDataset):
             theta_chunk = torch.tensor(self.f['theta'][chunk])
             x_chunk = torch.tensor(self.f['x'][chunk])
 
-            if self.pin:
+            if self.device == 'cuda':
                 theta_chunk, x_chunk = theta_chunk.pin_memory(), x_chunk.pin_memory()
 
-            order = torch.randperm(chunk.stop - chunk.start)
+            order = torch.randperm(len(theta_chunk))
+            theta_chunk, x_chunk = theta_chunk[order], x_chunk[order]
 
-            for idx in order.split(self.batch_shape[0]):
-                theta_prime = self.prior.sample(self.batch_shape)
-                theta, x = theta_chunk[idx], x_chunk[idx]
-                theta, x = theta.to(theta_prime), x.to(theta_prime)
+            for theta, x in zip(
+                theta_chunk.split(self.batch_size),
+                x_chunk.split(self.batch_size),
+            ):
+                theta, x = theta.to(self.device), x.to(self.device)
+                theta_prime = theta[torch.randperm(len(theta))]
 
                 yield theta, theta_prime, x

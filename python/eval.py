@@ -46,7 +46,7 @@ if __name__ == '__main__':
         masks = model.masks
 
     # Ground Truth
-    data = amsi.OfflineLTEDataset(args.samples, simulator.prior)
+    data = amsi.OfflineLTEDataset(args.samples)
     theta_star, x_star = data[args.index]
     x_star = x_star.to(device)
 
