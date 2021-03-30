@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from functools import lru_cache, partial
 from multiprocessing import cpu_count, Pool
 from torch.distributions import (
     Distribution,
@@ -13,9 +14,129 @@ from torch.distributions import (
     Uniform,
 )
 
-from typing import Tuple, List
+from typing import List, Tuple
 
 from . import Simulator
+
+
+@lru_cache(None)
+def ligo_nsd(length: int, delta_f: float, cutoff_freq: float) -> tuple:
+    r"""LIGO's Noise Spectral Density (NSD) and its standard deviation
+
+    References:
+        https://pycbc.org/pycbc/latest/html/pycbc.noise.html#pycbc.noise.gaussian.frequency_noise_from_psd
+    """
+
+    from pycbc.psd import aLIGOZeroDetHighPower
+
+    psd = aLIGOZeroDetHighPower(length, delta_f, cutoff_freq)
+    psd.data[-1] = psd.data[-2]
+
+    idx = int(psd.duration * cutoff_freq)
+    sigma = np.sqrt(psd / psd.delta_f) / 2
+    sigma[:idx] = sigma[idx]
+
+    return psd, sigma
+
+
+def generate_waveform(
+    theta: np.ndarray,
+    approximant: str = 'IMRPhenomPv2',
+    duration: float = 4.,  # s
+    sample_rate: int = 2048,  # Hz
+    cutoff_freq: float = 20.,  # Hz
+    detectors: list = ['H1', 'L1'],
+    noisy: bool = True,
+) -> np.ndarray:
+    r"""Waveform generation in the frequency domain
+
+    References:
+        https://github.com/stephengreen/lfi-gw
+    """
+
+    try:
+        from pycbc.waveform import get_td_waveform
+        from pycbc.detector import Detector
+        from pycbc.noise import frequency_noise_from_psd
+    except:
+        shape = len(detectors), int(duration * sample_rate / 2) + 1
+        return np.zeros(shape)
+
+    theta = theta.astype(float)
+
+    # Waveform simulation
+    wav_args = {
+        ## Static
+        'approximant': approximant,
+        'delta_t': 1 / sample_rate,
+        'f_lower': cutoff_freq,
+        ## Variables
+        'distance': theta[0],
+        'mass1': theta[1],
+        'mass2': theta[2],
+        'spin1z': theta[3],
+        'spin2z': theta[4],
+        'coa_phase': theta[5],
+        'inclination': theta[6],
+    }
+
+    hp, hc = get_td_waveform(**wav_args)
+
+    # Projection on detectors
+    proj_args = {
+        ## Static
+        'method': 'constant',
+        'reference_time': 921726855,  # 18/03/1999 - 03:14:15
+        ## Variables
+        'dec': theta[7],
+        'ra': theta[8],
+        'polarization': theta[9],
+    }
+
+    signals = {}
+    for det in detectors:
+        signals[det] = Detector(det).project_wave(hp, hc, **proj_args)
+
+    # Fast Fourier Transform
+    length = int(duration * sample_rate)
+
+    for det, s in signals.items():
+        if len(s) < length:
+            s.prepend_zeros(length - len(s))
+        else:
+            s = s[len(s) - length:]
+
+        signals[det] = s.to_frequencyseries()
+
+    # Noise
+    s = signals[det]
+    psd, sigma = ligo_nsd(len(s), s.delta_f, cutoff_freq)
+
+    for det, s in signals.items():
+        if noisy:
+            s += frequency_noise_from_psd(psd)
+
+        s /= sigma  # whitening
+
+    # Export
+    x = np.stack([s.data for s in signals.values()])
+    x = x.astype(np.complex64)
+
+    return x
+
+
+def svd_basis(x: np.ndarray, n: int) -> np.ndarray:
+    r"""Singular Value Decomposition (SVD) basis reduction
+
+    References:
+        https://github.com/stephengreen/lfi-gw/blob/master/lfigw/reduced_basis.py
+    """
+
+    from sklearn.utils.extmath import randomized_svd
+
+    _, _, Vt = randomized_svd(x, n)
+    Vt = Vt.astype(x.dtype)
+    return Vt.T.conj()
 
 
 class GW(Simulator):
@@ -25,8 +146,11 @@ class GW(Simulator):
         https://github.com/gwastro/pycbc
     """
 
-    def __init__(self):
+    def __init__(self, fiducial: bool = False, basis: np.ndarray = None):
         super().__init__()
+
+        self.fiducial = fiducial
+        self.basis = basis
 
         bounds = torch.tensor([
             # 3-rd power law
@@ -81,115 +205,39 @@ class GW(Simulator):
 
         return labels
 
-    @staticmethod
-    def generate(theta: np.ndarray) -> np.ndarray:
-        from pycbc.waveform import get_td_waveform
-        from pycbc.detector import Detector
-        from pycbc.psd import aLIGOZeroDetHighPower
-        from pycbc.noise import noise_from_psd
-
-        theta = theta.astype(float)
-
-        # Waveform simulation
-        sample_rate = 2048
-
-        wav_args = {
-            ## Static
-            'approximant': 'IMRPhenomPv2',
-            'delta_t': 1 / sample_rate,  # s
-            'f_lower': 20,  # Hz
-            ## Variables
-            'distance': theta[0],
-            'mass1': theta[1],
-            'mass2': theta[2],
-            'spin1z': theta[3],
-            'spin2z': theta[4],
-            'coa_phase': theta[5],
-            'inclination': theta[6],
-        }
-
-        hp, hc = get_td_waveform(**wav_args)
-
-        # Projection on detectors
-        det_args = {
-            ## Static
-            'reference_time': 921726855,  # 18/03/1999 - 03:14:15
-            ## Variables
-            'dec': theta[7],
-            'ra': theta[8],
-            'polarization': theta[9],
-        }
-
-        td_length = 128 * sample_rate  # 128s
-
-        signals = {}
-        for det in ['H1', 'L1']:
-            signals[det] = Detector(det).project_wave(hp, hc, **det_args)
-            signals[det].resize(td_length)
-
-        # PSD
-        psd_args = {
-            ## Static
-            'length': td_length * 2 + 1,  # ?
-            'delta_f': 1 / 128,  # Hz
-            'low_freq_cutoff': wav_args['f_lower'],
-        }
-
-        psd = aLIGOZeroDetHighPower(**psd_args)
-
-        # Strain
-        noise_args = {
-            ## Static
-            'length': td_length,
-            'delta_t': wav_args['delta_t'],
-            'psd': psd,
-        }
-
-        for det, s in signals.items():
-            noise = noise_from_psd(**noise_args)
-            noise.start_time = s.start_time
-            signals[det] = noise.add_into(s)
-
-        # Whitening
-        white_args = {
-            ## Static
-            'segment_duration': 4,  # s
-            'max_filter_duration': 4,  # s
-            'remove_corrupted': False,
-        }
-
-        for det, s in signals.items():
-            signals[det] = s.whiten(**white_args)
-
-        # High-pass filter
-        high_args = {
-            ## Static
-            'frequency': wav_args['f_lower'],
-            'remove_corrupted': False,
-            'order': 512,
-        }
-
-        for det, s in signals.items():
-            signals[det] = s.highpass_fir(**high_args)
-
-        # Output
-        length = 4 * sample_rate  # 4s
-        x = np.stack([s.numpy()[:length] for s in signals.values()])
-        x = x.astype(np.float32)
-
-        return x
-
     def forward(self, theta: torch.Tensor) -> torch.Tensor:
-        import pycbc
+        if self.fiducial:
+            fun = partial(generate_waveform, noisy=False)
+            theta[:, 0] = self.high[0]
+        else:
+            fun = generate_waveform
 
-        theta_np = theta.view(-1, theta.size(-1)).cpu().numpy()
+        seq = theta.view(-1, theta.size(-1)).cpu().numpy()
+
         with Pool(cpu_count()) as p:
-            x = p.map(self.generate, iter(theta_np))
+            x = p.map(fun, iter(seq))
 
-        x = torch.from_numpy(np.stack(x))
-        x = x.view(theta.shape[:-1] + x.shape[1:]).to(theta)
+        x = np.stack(x)
+        x = x.reshape(theta.shape[:-1] + x.shape[1:])
 
-        return x
+        if self.basis is not None:
+            x = x @ self.basis
+            x = x.view(x.real.dtype).reshape(x.shape + (2,))
+
+        return torch.from_numpy(x).to(theta.device)
+
+
+class BasisGW(Simulator):
+    def __new__(self, n: int, m: int):
+        sim = GW(fiducial=True)
+
+        _, x = sim.sample((m,))
+        x = x.view(-1, x.size(-1)).numpy()
+
+        sim.fiducial = False
+        sim.basis = svd_basis(x, n)
+
+        return sim
 
 
 class PowerLaw(Uniform):

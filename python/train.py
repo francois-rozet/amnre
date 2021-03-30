@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import h5py
 import json
 import os
 import numpy as np
@@ -18,6 +19,9 @@ import amsi
 
 
 def build_masks(strings: List[str], theta_size: int) -> torch.BoolTensor:
+    if not strings:
+        return None
+
     masks = []
 
     every = amsi.enumerate_masks(theta_size)
@@ -31,12 +35,15 @@ def build_masks(strings: List[str], theta_size: int) -> torch.BoolTensor:
             mask = amsi.str2mask(s)[:theta_size]
             masks.append(mask.unsqueeze(0))
 
-    return torch.cat(masks) if masks else None
+    return torch.cat(masks)
 
 
 def build_instance(settings: dict) -> Tuple[nn.Module, nn.Module]:
     # Simulator
-    if settings['simulator'] == 'MLCP':
+    if settings['simulator'] == 'GW':
+        with h5py.File(settings['samples'], 'r') as f:
+            simulator = amsi.GW(basis=f['basis'][:])
+    elif settings['simulator'] == 'MLCP':
         simulator = amsi.MLCP()
     else:  # settings['simulator'] == 'SCLP'
         simulator = amsi.SLCP()
@@ -46,9 +53,6 @@ def build_instance(settings: dict) -> Tuple[nn.Module, nn.Module]:
 
     theta_size = theta.numel()
     x_size = x.numel()
-
-    # Masks
-    masks = build_masks(settings['masks'], theta_size)
 
     # Model & Encoder
     if settings['encoder'] is None:
@@ -65,8 +69,10 @@ def build_instance(settings: dict) -> Tuple[nn.Module, nn.Module]:
         }
 
     if settings['arbitrary']:
-        model = amsi.AMNRE(theta_size, x_size, masks=masks, encoder=encoder, **settings['model'])
+        model = amsi.AMNRE(theta_size, x_size, encoder=encoder, **settings['model'])
     else:
+        masks = build_masks(settings['masks'], theta_size)
+
         if masks is None:
             model = amsi.NRE(theta_size, x_size, encoder=encoder, **settings['model'])
         else:
@@ -90,14 +96,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Training')
 
     parser.add_argument('-device', default='cpu', choices=['cpu', 'cuda'])
-    parser.add_argument('-simulator', default='SLCP', choices=['SLCP', 'MLCP'])
-    parser.add_argument('-masks', nargs='+', default=[], help='marginalzation masks')
+    parser.add_argument('-simulator', default='SLCP', choices=['SLCP', 'MLCP', 'GW'])
+    parser.add_argument('-samples', default=None, help='samples file (H5)')
     parser.add_argument('-model', type=json.loads, default=None, help='model architecture')
     parser.add_argument('-encoder', type=json.loads, default=None, help='encoder architecture')
+    parser.add_argument('-masks', nargs='+', default=[], help='marginalzation masks')
     parser.add_argument('-arbitrary', default=False, action='store_true', help='arbitrary design')
     parser.add_argument('-weights', default=None, help='warm-start weights')
-
-    parser.add_argument('-samples', default=None, help='samples file (H5)')
 
     parser.add_argument('-epochs', type=int, default=100, help='number of epochs')
     parser.add_argument('-batch-size', type=int, default=1024, help='batch size')
@@ -107,7 +112,7 @@ if __name__ == '__main__':
     parser.add_argument('-amsgrad', type=bool, default=True, help='AMS gradient')
     parser.add_argument('-patience', type=int, default=10, help='scheduler patience')
     parser.add_argument('-threshold', type=float, default=1e-2, help='scheduler threshold')
-    parser.add_argument('-factor', type=float, default=1e-1, help='scheduler factor')
+    parser.add_argument('-factor', type=float, default=2e-1, help='scheduler factor')
     parser.add_argument('-min-lr', type=float, default=1e-6, help='minimum learning rate')
 
     parser.add_argument('-o', '--output', default='../products/models/out.pth', help='output file (PTH)')
@@ -117,6 +122,23 @@ if __name__ == '__main__':
 
     # Simulator & Model
     simulator, model = build_instance(vars(args))
+
+    ## Arbitrary masks
+    if args.arbitrary:
+        theta_size = simulator.prior.sample().numel()
+
+        if not args.masks:
+            args.masks.append('uniform')
+
+        if args.masks[0] == 'poisson':
+            mask_sampler = amsi.PoissonMask(theta_size)
+        elif args.masks[0] == 'uniform':
+            mask_sampler = amsi.UniformMask(theta_size)
+        else:
+            masks = build_masks(args.masks, theta_size)
+            mask_sampler = amsi.SelectionMask(masks)
+
+        mask_sampler.to(args.device)
 
     # Criterion(s)
     criterion = amsi.RELoss()
@@ -139,7 +161,7 @@ if __name__ == '__main__':
 
     # Dataset
     if args.samples:
-        trainset = amsi.OfflineLTEDataset(args.samples, args.batch_size, device=args.device)
+        trainset = amsi.OfflineLTEDataset(args.samples, batch_size=args.batch_size, device=args.device)
     else:
         trainset = amsi.OnlineLTEDataset(simulator, args.batch_size)
 
@@ -152,8 +174,22 @@ if __name__ == '__main__':
         start = time()
 
         for theta, theta_prime, x in islice(trainset, args.per_epoch):
-            ratio = model(theta, x)
-            ratio_prime = model(theta_prime, x)
+            if args.arbitrary:
+                if model.hyper is None:
+                    mask = mask_sampler(theta.shape[:1])
+                else:
+                    mask = mask_sampler()
+                    model[mask]
+                    mask = None
+
+            z = model.encoder(x)
+
+            if args.arbitrary:
+                ratio = model(theta, z, mask)
+                ratio_prime = model(theta_prime, z, mask)
+            else:
+                ratio = model(theta, z)
+                ratio_prime = model(theta_prime, z)
 
             l = criterion(ratio, ratio_prime)
 

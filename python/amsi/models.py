@@ -5,8 +5,6 @@ import torch.nn as nn
 
 from typing import Callable, Iterable, Tuple, Union
 
-from .utils import enumerate_masks
-
 
 ACTIVATIONS = {
     'ReLU': nn.ReLU,
@@ -16,37 +14,6 @@ ACTIVATIONS = {
     'SELU': nn.SELU,
     'GELU': nn.GELU,
 }
-
-
-class AttentiveLinear(nn.Module):
-    r"""Attentive Linear layer
-
-    Args:
-        in_features: The input size.
-        out_features: The output size.
-        bias: Whether to use bias or not.
-    """
-
-    def __init__(self, in_features: int, out_features: int, bias: bool = True):
-        super().__init__()
-
-        self.in_features = in_features
-        self.out_features = out_features
-
-        self.bias = nn.Linear(in_features, out_features, bias)
-        self.weight = nn.Linear(in_features, in_features * out_features, bias)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        shape = x.shape
-        x = x.view(-1, 1, shape[-1])
-
-        b = self.bias(x)
-        W = self.weight(x).view(-1, self.in_features, self.out_features)
-
-        y = torch.bmm(x, W) + b
-        y = y.view(shape[:-1] + (-1,))
-
-        return y
 
 
 class MLP(nn.Sequential):
@@ -60,7 +27,6 @@ class MLP(nn.Sequential):
         bias: Whether to use bias or not.
         dropout: The dropout rate.
         activation: The activation layer type.
-        attentive: Whether to use attentive linear layers or not.
     """
 
     def __init__(
@@ -68,15 +34,13 @@ class MLP(nn.Sequential):
         input_size: Union[int, torch.Size],
         output_size: int = 1,
         hidden_size: int = 64,
-        num_layers: int = 2,
+        num_layers: int = 1,
         bias: bool = True,
         dropout: float = 0.,
         activation: str = 'ReLU',
-        attentive: bool = False,
     ):
         dropout = nn.Dropout(dropout) if dropout > 0. else nn.Identity()
         activation = ACTIVATIONS[activation]()
-        linear = AttentiveLinear if attentive else nn.Linear
 
         layers = []
 
@@ -85,7 +49,7 @@ class MLP(nn.Sequential):
             input_size = input_size.numel()
 
         layers.extend([
-            linear(input_size, hidden_size, bias),
+            nn.Linear(input_size, hidden_size, bias),
             activation,
             dropout,
         ])
@@ -97,12 +61,40 @@ class MLP(nn.Sequential):
                 dropout,
             ])
 
-        layers.append(linear(hidden_size, output_size, bias))
+        layers.append(nn.Linear(hidden_size, output_size, bias))
 
         super().__init__(*layers)
 
         self.input_size = input_size
         self.output_size = output_size
+
+
+def reparametrize(model: nn.Module, weights: torch.Tensor, i: int = 0) -> int:
+    r"""Reparametrize model"""
+
+    for key, val in model._parameters.items():
+        j = i + val.numel()
+        model._parameters[key] = weights[i:j].view(val.shape)
+        i = j
+
+    for m in model._modules.values():
+        i = reparametrize(m, weights, i)
+
+    return i
+
+
+class HyperNet(nn.Module):
+    r"""Hyper Network"""
+
+    def __init__(self, network: nn.Module, input_size: int, **kwargs):
+        super().__init__()
+
+        output_size = sum(p.numel() for p in network.parameters())
+        self.weights = MLP(input_size, output_size, **kwargs)
+
+    def forward(self, network: nn.Module, condition: torch.Tensor) -> nn.Module:
+        reparametrize(network, self.weights(condition))
+        return network
 
 
 class NRE(nn.Module):
@@ -127,18 +119,10 @@ class NRE(nn.Module):
     ):
         super().__init__()
 
-        self._encode = True
         self.encoder = encoder
-
         self.mlp = MLP(theta_size + x_size, 1, **kwargs)
 
-    def set_encode(self, mode: bool):
-        self._encode = mode
-
     def forward(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
-        if self._encode:
-            x = self.encoder(x)
-
         return self.mlp(torch.cat([theta, x], dim=-1)).squeeze(-1)
 
 
@@ -170,16 +154,12 @@ class MNRE(nn.Module):
 
         self.register_buffer('masks', masks)
 
-        self._encode = True
         self.encoder = encoder
 
         self.nres = nn.ModuleList([
             NRE(theta_size, x_size, **kwargs)
             for theta_size in self.masks.sum(dim=-1).tolist()
         ])
-
-    def set_encode(self, mode: bool):
-        self._encode = mode
 
     def __getitem__(self, mask: torch.BoolTensor) -> nn.Module:
         match = torch.all(self.masks == mask, dim=-1)
@@ -198,9 +178,6 @@ class MNRE(nn.Module):
         theta: torch.Tensor,
         x: torch.Tensor,
     ) -> torch.Tensor:
-        if self._encode:
-            x = self.encoder(x)
-
         ratios = []
         for mask, nre in iter(self):
             ratios.append(nre(theta[..., mask], x))
@@ -208,15 +185,13 @@ class MNRE(nn.Module):
         return torch.stack(ratios, dim=-1)
 
 
-class AMNRE(NRE):
+class AMNRE(nn.Module):
     r"""Arbitrary Marginal Neural Ratio Estimator (AMNRE)
 
     (theta, x, mask_a) ---> log r(theta_a | x)
 
     Args:
         theta_size: The size of the parameters.
-        masks: The masks of the considered subsets of the parameters.
-            Only used during training.
 
         *args and **kwargs are transmitted to `NRE`.
     """
@@ -225,35 +200,42 @@ class AMNRE(NRE):
         self,
         theta_size: int,
         *args,
-        masks: torch.BoolTensor = None,
+        hyper: dict = None,
         **kwargs,
     ):
-        super().__init__(theta_size * 2, *args, **kwargs)
+        super().__init__()
 
-        if masks is None:
-            masks = enumerate_masks(theta_size)
+        if hyper is None:
+            self.net = NRE(theta_size * 2, *args, **kwargs)
+            self.hyper = None
+        else:
+            self.net = NRE(theta_size, *args, **kwargs)
+            self.hyper = HyperNet(self.net, theta_size, **hyper)
 
-        self.register_buffer('masks', masks)
         self.register_buffer('default', torch.ones(theta_size).bool())
 
+    @property
+    def encoder(self) -> nn.Module:
+        return self.net.encoder
+
     def __getitem__(self, mask: torch.BoolTensor) -> nn.Module:
-        with torch.no_grad():
-            self.default.data = mask.to(self.default)
+        self.default = mask.to(self.default)
+
+        if self.hyper is not None:
+            self.hyper(self.net, self.default.float())
 
         return self
 
     def forward(
         self,
-        theta: torch.Tensor,
-        x: torch.Tensor,
-        mask: torch.BoolTensor = None,
+        theta: torch.Tensor,  # (N, D)
+        x: torch.Tensor,  # (N, *)
+        mask: torch.BoolTensor = None,  # (D,)
     ) -> torch.Tensor:
         if mask is None:
-            if self.training:
-                idx = torch.randint(len(self.masks), theta.shape[:-1])
-                mask = self.masks[idx]
-            else:
-                mask = self.default
+            mask = self.default
+        elif self.hyper is not None:
+            self.hyper(self.net, mask.float())
 
         if mask.dim() == 1 and theta.size(-1) < mask.numel():
             blank = theta.new_zeros(theta.shape[:-1] + mask.shape)
@@ -262,6 +244,7 @@ class AMNRE(NRE):
         else:
             theta = theta * mask
 
-        theta = torch.cat(torch.broadcast_tensors(theta, mask), dim=-1)
+        if self.hyper is None:
+            theta = torch.cat(torch.broadcast_tensors(theta, mask), dim=-1)
 
-        return super().forward(theta, x)
+        return self.net(theta, x)

@@ -12,8 +12,8 @@ if __name__ == '__main__':
     parser.add_argument('settings', help='settings file (JSON)')
     parser.add_argument('samples', help='samples file (H5)')
 
-    parser.add_argument('-indices', nargs='+', type=int, default=[], help='indices of samples')
-    parser.add_argument('-masks', nargs='+', default=[], help='marginalization masks')
+    parser.add_argument('-indices', nargs=2, type=int, default=(0, 1), help='indices range')
+    parser.add_argument('-masks', nargs='+', default=['=3'], help='marginalization masks')
 
     parser.add_argument('-batch-size', type=int, default=2 ** 12, help='batch size')
     parser.add_argument('-sigma', type=float, default=0.1, help='sigma')
@@ -21,7 +21,7 @@ if __name__ == '__main__':
     parser.add_argument('-stop', type=int, default=2 ** 14, help='end sample')
     parser.add_argument('-groupby', type=int, default=2 ** 8, help='sample group size')
 
-    parser.add_argument('-bins', type=int, default=100, help='number of bins')
+    parser.add_argument('-bins', type=int, default=50, help='number of bins')
     parser.add_argument('-limit', type=int, default=int(1e7), help='histogram size limit')
 
     parser.add_argument('-accuracy', default=False, action='store_true')
@@ -29,7 +29,16 @@ if __name__ == '__main__':
     parser.add_argument('-consistence', default=False, action='store_true')
     parser.add_argument('-plots', default=False, action='store_true')
 
+    parser.add_argument('-o', '--output', default=None, help='output file (CSV)')
+
     args = parser.parse_args()
+
+    # Output
+    if args.output is None:
+        args.output = args.settings.replace('.json', '_')
+        args.output += os.path.basename(args.samples).replace('.h5', '.csv')
+    elif os.path.dirname(args.output):
+        os.makedirs(os.path.dirname(args.output), exist_ok=True)
 
     # Settings
     with open(args.settings) as f:
@@ -44,18 +53,14 @@ if __name__ == '__main__':
     device = low.device
 
     # Masks
-    if args.masks:
-        masks = build_masks(args.masks, low.numel()).to(device)
-    else:
-        masks = model.masks
+    masks = build_masks(args.masks, low.numel()).to(device)
 
     # Samples
     data = amsi.OfflineLTEDataset(args.samples)
 
-    if not args.indices:
-        args.indices = range(len(data))
+    measures = []
 
-    for idx in args.indices:
+    for idx in tqdm(range(*args.indices)):
         theta_star, x_star = data[idx]
         x_star = x_star.to(device)
 
@@ -107,16 +112,11 @@ if __name__ == '__main__':
             truth = None
 
         ## MNRE
-        csvfile = args.settings.replace('.json', f'_{idx}.csv')
-
         hists = []
-        measures = []
         divergences = []
 
         with torch.no_grad():
             model.eval()
-            model.set_encode(False)
-            z_star = model.encoder(x_star)
 
             for mask in masks:
                 size = args.bins ** torch.count_nonzero(mask)
@@ -126,6 +126,8 @@ if __name__ == '__main__':
                 nre = model[mask]
                 if nre is None:
                     continue
+
+                z_star = model.encoder(x_star)
 
                 ### Hist
                 sampler = amsi.RESampler(
@@ -196,7 +198,7 @@ if __name__ == '__main__':
 
                     hists.append((mask, hist.cpu()))
 
-                ## Qualitative
+                ### Qualitative
                 if args.plots:
                     pairs = get_pairs(hist)
                     labels = [l for (l, m) in zip(simulator.labels, mask) if m]
@@ -204,17 +206,18 @@ if __name__ == '__main__':
                     fig = corner(
                         pairs, low[mask].cpu(), high[mask].cpu(),
                         labels=labels, truth=theta_star[mask],
-                        filename=csvfile.replace('.csv', f'_{textmask}.pdf'),
+                        filename=args.output.replace('.csv', f'_{idx}_{textmask}.pdf'),
                     )
 
                     del pairs
 
                 del hist
 
-        # Save
-        measures = pd.DataFrame(measures)
-        measures.to_csv(csvfile, index=False)
-
+        ## Export consistence
         if args.consistence:
-            divergences = np.asarray(divergences)
-            np.savetxt(csvfile.replace('.csv', '.txt'), divergences, fmt='%.6f')
+            divergences = np.array(divergences)
+            np.savetxt(args.output.replace('.csv', f'_{idx}.txt'), divergences, fmt='%.6f')
+
+    # Save
+    measures = pd.DataFrame(measures)
+    measures.to_csv(args.output, index=False)

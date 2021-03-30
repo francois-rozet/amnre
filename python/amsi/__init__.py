@@ -6,6 +6,6 @@ from .models import MLP, NRE, MNRE, AMNRE
 from .samplers import TractableSampler, RESampler
 
 from .simulators.slcp import SLCP, MLCP
-from .simulators.gw import GW
+from .simulators.gw import GW, BasisGW
 
-from .utils import *
+from .masks import *
