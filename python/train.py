@@ -54,6 +54,13 @@ def build_instance(settings: dict) -> Tuple[nn.Module, nn.Module]:
     theta_size = theta.numel()
     x_size = x.numel()
 
+    # Moments
+    if settings['weights'] is None:
+        moments = torch.zeros(theta_size), torch.ones(theta_size)
+    else:
+        theta = simulator.prior.sample((2 ** 16,))
+        moments = torch.mean(theta, dim=0), torch.std(theta, dim=0)
+
     # Model & Encoder
     if settings['encoder'] is None:
         encoder = nn.Flatten(-len(x.shape))
@@ -69,23 +76,23 @@ def build_instance(settings: dict) -> Tuple[nn.Module, nn.Module]:
         }
 
     if settings['arbitrary']:
-        model = amsi.AMNRE(theta_size, x_size, encoder=encoder, **settings['model'])
+        model = amsi.AMNRE(theta_size, x_size, encoder=encoder, moments=moments, **settings['model'])
     else:
         masks = build_masks(settings['masks'], theta_size)
 
         if masks is None:
-            model = amsi.NRE(theta_size, x_size, encoder=encoder, **settings['model'])
+            model = amsi.NRE(theta_size, x_size, encoder=encoder, moments=moments, **settings['model'])
         else:
-            model = amsi.MNRE(masks, x_size, encoder=encoder, **settings['model'])
+            model = amsi.MNRE(masks, x_size, encoder=encoder, moments=moments, **settings['model'])
+
+    ## Weights
+    if settings['weights'] is not None:
+        weights = torch.load(settings['weights'], map_location='cpu')
+        model.load_state_dict(weights)
 
     # Device
     simulator.to(settings['device'])
     model.to(settings['device'])
-
-    # Load
-    if settings['weights'] is not None:
-        weights = torch.load(settings['weights'], map_location=settings['device'])
-        model.load_state_dict(weights)
 
     return simulator, model
 

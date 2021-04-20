@@ -16,6 +16,24 @@ ACTIVATIONS = {
 }
 
 
+class UnitNorm(nn.Module):
+    r"""Unit Normalization (UnitNorm) layer
+
+    Args:
+        shift: The input shift
+        scale: The input scale
+    """
+
+    def __init__(self, shift: torch.Tensor, scale: torch.Tensor):
+        super().__init__()
+
+        self.register_buffer('shift', shift)
+        self.register_buffer('iscale', 1 / scale)
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        return (input - self.shift) * self.iscale
+
+
 class MLP(nn.Sequential):
     r"""Multi-Layer Perceptron (MLP)
 
@@ -115,14 +133,17 @@ class NRE(nn.Module):
         theta_size: int,
         x_size: int,
         encoder: nn.Module = nn.Identity(),
+        moments: Tuple[torch.Tensor, torch.Tensor] = None,
         **kwargs,
     ):
         super().__init__()
 
         self.encoder = encoder
+        self.normalize = nn.Identity() if moments is None else UnitNorm(*moments)
         self.mlp = MLP(theta_size + x_size, 1, **kwargs)
 
     def forward(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        theta = self.normalize(theta)
         return self.mlp(torch.cat([theta, x], dim=-1)).squeeze(-1)
 
 
@@ -148,6 +169,7 @@ class MNRE(nn.Module):
         masks: torch.BoolTensor,
         x_size: int,
         encoder: nn.Module = nn.Identity(),
+        moments: Tuple[torch.Tensor, torch.Tensor] = None,
         **kwargs,
     ) -> torch.Tensor:
         super().__init__()
@@ -156,9 +178,16 @@ class MNRE(nn.Module):
 
         self.encoder = encoder
 
+        if moments is not None:
+            shift, scale = moments
+
         self.nres = nn.ModuleList([
-            NRE(theta_size, x_size, **kwargs)
-            for theta_size in self.masks.sum(dim=-1).tolist()
+            NRE(
+                m.sum().item(),
+                x_size,
+                moments= None if moments is None else (shift[m], scale[m]),
+                **kwargs
+            ) for m in self.masks
         ])
 
     def __getitem__(self, mask: torch.BoolTensor) -> nn.Module:
@@ -200,10 +229,13 @@ class AMNRE(nn.Module):
         self,
         theta_size: int,
         *args,
+        moments: Tuple[torch.Tensor, torch.Tensor] = None,
         hyper: dict = None,
         **kwargs,
     ):
         super().__init__()
+
+        self.normalize = nn.Identity() if moments is None else UnitNorm(*moments)
 
         if hyper is None:
             self.net = NRE(theta_size * 2, *args, **kwargs)
@@ -238,11 +270,11 @@ class AMNRE(nn.Module):
             self.hyper(self.net, mask.float())
 
         if mask.dim() == 1 and theta.size(-1) < mask.numel():
-            blank = theta.new_zeros(theta.shape[:-1] + mask.shape)
+            blank = theta.new_empty(theta.shape[:-1] + mask.shape)
             blank[..., mask] = theta
             theta = blank
-        else:
-            theta = theta * mask
+
+        theta = self.normalize(theta) * mask
 
         if self.hyper is None:
             theta = torch.cat(torch.broadcast_tensors(theta, mask), dim=-1)
