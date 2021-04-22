@@ -228,6 +228,9 @@ if __name__ == '__main__':
         os.makedirs(os.path.dirname(args.output), exist_ok=True)
 
     ## Weights
+    if hasattr(model, 'clear'):
+        model.clear()
+
     torch.save(model.cpu().state_dict(), args.output)
 
     ## Settings

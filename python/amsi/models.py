@@ -250,6 +250,10 @@ class AMNRE(nn.Module):
     def encoder(self) -> nn.Module:
         return self.net.encoder
 
+    def clear(self) -> None:
+        with torch.no_grad():
+            self[torch.ones_like(self.default)]
+
     def __getitem__(self, mask: torch.BoolTensor) -> nn.Module:
         self.default = mask.to(self.default)
 
