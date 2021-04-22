@@ -39,7 +39,7 @@ class NormalTransition(Transition):
 
     symmetric = True
 
-    def __init__(self, sigma: float = 1.):
+    def __init__(self, sigma: torch.Tensor = 1.):
         super().__init__()
 
         self.sigma = sigma
@@ -57,7 +57,7 @@ class MetropolisHastings(data.IterableDataset):
         https://en.wikipedia.org/wiki/Metropolis%E2%80%93Hastings_algorithm
     """
 
-    def __init__(self, sigma: float = 1.):
+    def __init__(self, sigma: torch.Tensor = 1.):
         super().__init__()
 
         self.transition = NormalTransition(sigma)  # q(y | x)

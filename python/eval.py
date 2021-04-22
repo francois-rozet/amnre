@@ -16,7 +16,7 @@ if __name__ == '__main__':
     parser.add_argument('-masks', nargs='+', default=['=3'], help='marginalization masks')
 
     parser.add_argument('-batch-size', type=int, default=2 ** 12, help='batch size')
-    parser.add_argument('-sigma', type=float, default=0.1, help='sigma')
+    parser.add_argument('-sigma', type=float, default=2e-2, help='sigma')
     parser.add_argument('-start', type=int, default=2 ** 6, help='start sample')
     parser.add_argument('-stop', type=int, default=2 ** 14, help='end sample')
     parser.add_argument('-groupby', type=int, default=2 ** 8, help='sample group size')
@@ -77,7 +77,7 @@ if __name__ == '__main__':
                     simulator,
                     x_star,
                     batch_size=args.batch_size,
-                    sigma=args.sigma,
+                    sigma=args.sigma * (high - low),
                 )
 
                 samples = sampler(args.start, args.stop, groupby=args.groupby)
@@ -112,17 +112,13 @@ if __name__ == '__main__':
             truth = None
 
         ## MNRE
-        hists = []
-        divergences = []
+        hists = {}
+        divergences = {}
 
         with torch.no_grad():
             model.eval()
 
             for mask in masks:
-                size = args.bins ** torch.count_nonzero(mask)
-                if size > args.limit:
-                    continue
-
                 nre = model[mask]
                 if nre is None:
                     continue
@@ -135,10 +131,21 @@ if __name__ == '__main__':
                     simulator.masked_prior(mask),
                     z_star,
                     batch_size=args.batch_size,
-                    sigma=args.sigma,
+                    sigma=args.sigma * (high[mask] - low[mask]),
                 )
 
-                hist = sampler.histogram(args.bins, low[mask], high[mask])
+                size = args.bins ** torch.count_nonzero(mask)
+                if size > args.limit:
+                    samples = sampler(args.start, args.stop, groupby=args.groupby)
+                    hist = reduce_histogramdd(
+                        samples, args.bins,
+                        low, high,
+                        bounded=True,
+                        sparse=True,
+                        device='cpu',
+                    )
+                else:
+                    hist = sampler.histogram(args.bins, low[mask], high[mask])
 
                 ### Quantitative
                 textmask = amsi.mask2str(mask)
@@ -156,7 +163,12 @@ if __name__ == '__main__':
                 #### Accuracy w.r.t. truth
                 if truth is not None:
                     dims = torch.arange(len(mask))[mask]
-                    target = marginalize(truth, dim=dims.tolist(), keep=True).to_dense().to(hist)
+                    target = marginalize(truth, dim=dims.tolist(), keep=True)
+
+                    if not hist.is_sparse:
+                        target = target.to_dense()
+
+                    target = target.to(hist)
 
                     measures[-1]['entropy_truth'] = entropy(target).item()
                     measures[-1]['kl_truth'] = kl_divergence(target, hist).item()
@@ -165,24 +177,25 @@ if __name__ == '__main__':
 
                 #### Coverage
                 if args.coverage:
-                    i = ravel_multi_index(index_star[mask], hist.shape).item()
-                    pdf, order = hist.view(-1).sort(descending=True)
-                    order = order.argsort()  # reverse mapping
-                    cdf = pdf.cumsum(0)
+                    val = hist[tuple(index_star[mask])]
 
-                    measures[-1]['quantile'] = cdf[order[i]].item()
+                    if hist.is_sparse:
+                        pdf = hist.values()
+                    else:
+                        pdf = hist.view(-1)
+
+                    measures[-1]['quantile'] = pdf[pdf >= val].sum().item()
 
                 #### Consistence
-                if args.consistence:
-                    divergences.append([])
+                if args.consistence and not hist.is_sparse:
+                    divergences[textmask] = {textmask: 0.}
 
-                    for i, (m, h) in enumerate(hists):
-                        h = h.to(hist)
+                    for key, (m, h) in hists.items():
                         common = torch.logical_and(mask, m)
 
                         if torch.all(~common):
-                            divergences[i].append(0.)
-                            divergences[-1].append(0.)
+                            divergences[textmask][key] = 0.
+                            divergences[key][textmask] = 0.
                             continue
 
                         dims = mask.cumsum(0)[common] - 1
@@ -191,12 +204,10 @@ if __name__ == '__main__':
                         dims = m.cumsum(0)[common] - 1
                         q = marginalize(h, dim=dims.tolist(), keep=True)
 
-                        divergences[i].append(kl_divergence(q, p).item())
-                        divergences[-1].append(kl_divergence(p, q).item())
+                        divergences[textmask][key] = kl_divergence(p, q).item()
+                        divergences[key][textmask] = kl_divergence(q, p).item()
 
-                    divergences[-1].append(0.)
-
-                    hists.append((mask, hist.cpu()))
+                    hists[textmask] = mask, hist
 
                 ### Qualitative
                 if args.plots:
@@ -215,8 +226,8 @@ if __name__ == '__main__':
 
         ## Export consistence
         if args.consistence:
-            divergences = np.array(divergences)
-            np.savetxt(args.output.replace('.csv', f'_{idx}.txt'), divergences, fmt='%.6f')
+            divergences = pd.DataFrame(divergences)
+            divergences.to_csv(args.output.replace('.csv', f'_{idx}.csv'))
 
     # Save
     measures = pd.DataFrame(measures)

@@ -68,12 +68,13 @@ def build_instance(settings: dict) -> Tuple[nn.Module, nn.Module]:
         encoder = amsi.MLP(x.shape, **settings['encoder'])
         x_size = encoder.output_size
 
-    if settings['model'] is None:
-        settings['model'] = {
-            'num_layers': 10,
-            'hidden_size': 256,
-            'activation': 'SELU',
-        }
+    default_model = {
+        'num_layers': 10,
+        'hidden_size': 256,
+        'activation': 'SELU',
+    }
+    default_model.update(settings['model'])
+    settings['model'] = default_model
 
     if settings['arbitrary']:
         model = amsi.AMNRE(theta_size, x_size, encoder=encoder, moments=moments, **settings['model'])
@@ -105,7 +106,7 @@ if __name__ == '__main__':
     parser.add_argument('-device', default='cpu', choices=['cpu', 'cuda'])
     parser.add_argument('-simulator', default='SLCP', choices=['SLCP', 'MLCP', 'GW'])
     parser.add_argument('-samples', default=None, help='samples file (H5)')
-    parser.add_argument('-model', type=json.loads, default=None, help='model architecture')
+    parser.add_argument('-model', type=json.loads, default={}, help='model architecture')
     parser.add_argument('-encoder', type=json.loads, default=None, help='encoder architecture')
     parser.add_argument('-masks', nargs='+', default=[], help='marginalzation masks')
     parser.add_argument('-arbitrary', default=False, action='store_true', help='arbitrary design')
