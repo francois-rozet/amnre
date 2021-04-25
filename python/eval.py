@@ -13,7 +13,7 @@ if __name__ == '__main__':
     parser.add_argument('samples', help='samples file (H5)')
 
     parser.add_argument('-indices', nargs=2, type=int, default=(0, 1), help='indices range')
-    parser.add_argument('-masks', nargs='+', default=['=3'], help='marginalization masks')
+    parser.add_argument('-masks', nargs='+', default=['=1', '=2'], help='marginalization masks')
 
     parser.add_argument('-batch-size', type=int, default=2 ** 12, help='batch size')
     parser.add_argument('-sigma', type=float, default=2e-2, help='sigma')
@@ -29,6 +29,7 @@ if __name__ == '__main__':
     parser.add_argument('-coverage', default=False, action='store_true')
     parser.add_argument('-consistence', default=False, action='store_true')
     parser.add_argument('-plots', default=False, action='store_true')
+    parser.add_argument('-composition', default=False, action='store_true')
 
     parser.add_argument('-o', '--output', default=None, help='output file (CSV)')
 
@@ -111,6 +112,13 @@ if __name__ == '__main__':
         measures = []
         hists = {}
         divergences = {}
+
+        if args.composition:
+            pairs = [
+                [None] * (i + 1)
+                for i in range(theta_star.numel())
+            ]
+            present = torch.tensor([False] * len(pairs))
 
         with torch.no_grad():
             model.eval()
@@ -222,23 +230,24 @@ if __name__ == '__main__':
 
                 ### Qualitative
                 if args.plots:
-                    pairs = get_pairs(hist)
                     labels = [l for (l, m) in zip(simulator.labels, mask) if m]
 
                     fig = corner(
-                        pairs, low[mask].cpu(), high[mask].cpu(),
+                        get_pairs(hist), low[mask].cpu(), high[mask].cpu(),
                         labels=labels, truth=theta_star[mask],
                         filename=args.output.replace('.csv', f'_{idx}_{textmask}.pdf'),
                     )
 
-                    del pairs
+                if args.composition and hist.dim() <= 2:
+                    present = torch.logical_or(present, mask)
+                    indices = torch.nonzero(mask).squeeze()
 
-                del hist
+                    if indices.numel() == 1:
+                        i = j = indices.tolist()
+                    else:
+                        i, j = indices.tolist()
 
-        ## Export consistence
-        if args.consistence:
-            df = pd.DataFrame(divergences)
-            df.to_csv(args.output.replace('.csv', f'_{idx}.csv'))
+                    pairs[j][i] = hist.cpu()
 
         ## Append measures
         df = pd.DataFrame(measures)
@@ -248,3 +257,28 @@ if __name__ == '__main__':
             mode='a',
             header=not os.path.exists(args.output),
         )
+
+        ## Export consistence
+        if args.consistence:
+            df = pd.DataFrame(divergences)
+            df.to_csv(args.output.replace('.csv', f'_{idx}.csv'))
+
+        ## Composition
+        if args.composition:
+            for i in reversed(range(present.numel())):
+                if not present[i]:
+                    pairs.pop(i)
+                    continue
+
+                for j in reversed(range(i + 1)):
+                    if not present[j]:
+                        pairs[i].pop(j)
+
+            textmask = amsi.mask2str(present)
+            labels = [l for (l, m) in zip(simulator.labels, present) if m]
+
+            fig = corner(
+                pairs, low[present].cpu(), high[present].cpu(),
+                labels=labels, truth=theta_star[present],
+                filename=args.output.replace('.csv', f'_{idx}_{textmask}_c.pdf'),
+            )

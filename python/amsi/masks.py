@@ -35,7 +35,7 @@ class UniformMask(nn.Module):
 class PoissonMask(nn.Module):
     r"""Poisson mask sampler"""
 
-    def __init__(self, size: int, lam: float = 2.):
+    def __init__(self, size: int, lam: float = 1.):
         super().__init__()
 
         self.size = size

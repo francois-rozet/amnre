@@ -66,7 +66,7 @@ def corner(
     for i in range(D):
         for j in range(D):
             # Only lower triangle
-            if j > i:
+            if j > i or hists[i][j] is None:
                 axs[i, j].axis('off')
                 continue
 
