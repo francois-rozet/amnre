@@ -41,14 +41,8 @@ if __name__ == '__main__':
     elif os.path.dirname(args.output):
         os.makedirs(os.path.dirname(args.output), exist_ok=True)
 
-    # Settings
-    with open(args.settings) as f:
-        settings = json.load(f)
-
-    settings['weights'] = args.settings.replace('.json', '.pth')
-
     # Simulator & Model
-    simulator, model = build_instance(settings)
+    simulator, model = from_settings(args.settings)
 
     low, high = simulator.low, simulator.high
     device = low.device

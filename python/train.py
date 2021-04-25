@@ -38,7 +38,7 @@ def build_masks(strings: List[str], theta_size: int) -> torch.BoolTensor:
     return torch.cat(masks)
 
 
-def build_instance(settings: dict) -> Tuple[nn.Module, nn.Module]:
+def build_instance(settings: dict) -> Tuple[amsi.Simulator, nn.Module]:
     # Simulator
     if settings['simulator'] == 'GW':
         with h5py.File(settings['samples'], 'r') as f:
@@ -98,6 +98,14 @@ def build_instance(settings: dict) -> Tuple[nn.Module, nn.Module]:
     return simulator, model
 
 
+def from_settings(filename: str) -> Tuple[amsi.Simulator, nn.Module]:
+    with open(filename) as f:
+        settings = json.load(f)
+        settings['weights'] = filename.replace('.json', '.pth')
+
+    return build_instance(settings)
+
+
 if __name__ == '__main__':
     import argparse
 
@@ -123,10 +131,13 @@ if __name__ == '__main__':
     parser.add_argument('-factor', type=float, default=2e-1, help='scheduler factor')
     parser.add_argument('-min-lr', type=float, default=1e-6, help='minimum learning rate')
 
+    parser.add_argument('-target', default=None, help='target network settings file (JSON)')
+    parser.add_argument('-coef', type=float, nargs=2, default=(1e-3, 1e-3), help='distillation losses coefficients')
+
     parser.add_argument('-o', '--output', default='../products/models/out.pth', help='output file (PTH)')
 
     args = parser.parse_args()
-    args.date = datetime.now().strftime('%y%m%d_%H%M%S')
+    args.date = datetime.now().strftime(r'%Y-%m-%d %H:%M:%S')
 
     # Simulator & Model
     simulator, model = build_instance(vars(args))
@@ -150,6 +161,8 @@ if __name__ == '__main__':
 
     # Criterion(s)
     criterion = amsi.RELoss()
+    rd_loss = amsi.RDLoss()
+    sd_loss = amsi.SDLoss()
 
     # Optimizer & Scheduler
     optimizer = optim.Adam(
@@ -173,6 +186,13 @@ if __name__ == '__main__':
     else:
         trainset = amsi.OnlineLTEDataset(simulator, args.batch_size)
 
+    # Target network
+    if args.target is None or type(model) is amsi.NRE:
+        targetnet = None
+    else:
+        _, targetnet = from_settings(args.target)
+        targetnet.to(args.device)
+
     # Training
     stats = []
 
@@ -182,6 +202,8 @@ if __name__ == '__main__':
         start = time()
 
         for theta, theta_prime, x in islice(trainset, args.per_epoch):
+            theta.requires_grad = True
+
             if args.arbitrary:
                 if model.hyper is None:
                     mask = mask_sampler(theta.shape[:1])
@@ -201,10 +223,26 @@ if __name__ == '__main__':
 
             l = criterion(ratio, ratio_prime)
 
-            losses.append(l.item())
+            if targetnet is not None:
+                if args.arbitrary:
+                    theta_mix = torch.where(mask, theta, theta_prime)
+                else:
+                    theta_mix = torch.stack([
+                        torch.where(mask, theta, theta_prime)
+                        for mask, _ in model
+                    ], dim=-2)
+
+                target_ratio = targetnet(theta_mix, targetnet.encoder(x))
+
+                rdl = args.coef[0] * rd_loss(ratio, target_ratio)
+                sdl = args.coef[1] * sd_loss(theta, ratio, target_ratio)
+
+                l = torch.stack([l, rdl, sdl])
+
+            losses.append(l.tolist())
 
             optimizer.zero_grad()
-            l.backward()
+            l.sum().backward()
             optimizer.step()
 
         end = time()
@@ -216,12 +254,12 @@ if __name__ == '__main__':
             'epoch': epoch,
             'time': end - start,
             'lr': optimizer.param_groups[0]['lr'],
-            'mean': losses.mean().item(),
-            'std': losses.std().item(),
+            'mean': losses.mean(dim=0).tolist(),
+            'std': losses.std(dim=0).tolist(),
         })
 
         ## Scheduler
-        scheduler.step(stats[-1]['mean'])
+        scheduler.step(losses.mean())
 
     # Output
     if os.path.dirname(args.output):

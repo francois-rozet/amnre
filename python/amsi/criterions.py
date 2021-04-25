@@ -62,24 +62,48 @@ class RELoss(nn.Module):
 
 
 class RDLoss(nn.Module):
-    r"""Ratio Distillation Loss (RDLoss)"""
+    r"""Ratio Distillation Loss (RDLoss)
+
+    (r(theta_a | x) - r(theta | x))^2
+
+    Note:
+        theta_b (theta / theta_a) has to be sampled from the prior p(theta_b)
+    """
 
     def forward(
         self,
-        ratio: torch.Tensor,  # r(theta_a | x)
-        target: torch.Tensor,  # r(theta | x)
+        ratio: torch.Tensor,  # log r(theta_a | x)
+        target: torch.Tensor,  # log r(theta | x)
     ) -> torch.Tensor:
+        ratio, target = ratio.exp(), target.exp()
 
-        return F.mse_loss(ratio, target)
+        return F.mse_loss(ratio, target.detach())
 
 
 class SDLoss(nn.Module):
-    r"""Score Distillation Loss (SDLoss)"""
+    r"""Score Distillation Loss (SDLoss)
+
+    (grad log r(theta_a | x) - grad log r(theta | x))^2
+
+    Note:
+        theta_b (theta / theta_a) has to be sampled from the prior p(theta_b)
+    """
 
     def forward(
         self,
-        score: torch.Tensor,  # grad log r(theta_a | x)
-        target: torch.Tensor,  # grad log r(theta | x)
+        theta: torch.Tensor,  # theta_a
+        ratio: torch.Tensor,  # log r(theta_a | x)
+        target: torch.Tensor,  # log r(theta | x)
     ) -> torch.Tensor:
+        score = torch.autograd.grad(  # grad log r(theta_a | x)
+            ratio, theta,
+            torch.ones_like(ratio),
+            create_graph=True,
+        )[0]
 
-        return F.mse_loss(score, target, reduction='sum') / score.size(0)
+        target = torch.autograd.grad(  # grad log r(theta | x)
+            target, theta,
+            torch.ones_like(target),
+        )[0]
+
+        return F.mse_loss(score, target.detach())
