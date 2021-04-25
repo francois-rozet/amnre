@@ -191,6 +191,7 @@ class MNRE(nn.Module):
         ])
 
     def __getitem__(self, mask: torch.BoolTensor) -> nn.Module:
+        mask = mask.to(self.masks)
         match = torch.all(self.masks == mask, dim=-1)
 
         if torch.any(match):

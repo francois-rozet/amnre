@@ -22,7 +22,8 @@ if __name__ == '__main__':
     parser.add_argument('-groupby', type=int, default=2 ** 8, help='sample group size')
 
     parser.add_argument('-bins', type=int, default=50, help='number of bins')
-    parser.add_argument('-limit', type=int, default=int(1e7), help='histogram size limit')
+    parser.add_argument('-mcmc-limit', type=int, default=int(1e7), help='MCMC size limit')
+    parser.add_argument('-wd-limit', type=int, default=int(1e4), help='Wasserstein distance size limit')
 
     parser.add_argument('-accuracy', default=False, action='store_true')
     parser.add_argument('-coverage', default=False, action='store_true')
@@ -53,12 +54,13 @@ if __name__ == '__main__':
     device = low.device
 
     # Masks
-    masks = build_masks(args.masks, low.numel()).to(device)
+    if type(model) is amsi.NRE:
+        masks = torch.tensor([[True] * low.numel()])
+    else:
+        masks = build_masks(args.masks, low.numel())
 
     # Samples
     data = amsi.OfflineLTEDataset(args.samples)
-
-    measures = []
 
     for idx in tqdm(range(*args.indices)):
         theta_star, x_star = data[idx]
@@ -112,6 +114,7 @@ if __name__ == '__main__':
             truth = None
 
         ## MNRE
+        measures = []
         hists = {}
         divergences = {}
 
@@ -119,9 +122,12 @@ if __name__ == '__main__':
             model.eval()
 
             for mask in masks:
-                nre = model[mask]
-                if nre is None:
-                    continue
+                if type(model) is amsi.NRE:
+                    nre = model
+                else:
+                    nre = model[mask]
+                    if nre is None:
+                        continue
 
                 z_star = model.encoder(x_star)
 
@@ -135,7 +141,7 @@ if __name__ == '__main__':
                 )
 
                 size = args.bins ** torch.count_nonzero(mask)
-                if size > args.limit:
+                if size > args.mcmc_limit:
                     samples = sampler(args.start, args.stop, groupby=args.groupby)
                     hist = reduce_histogramdd(
                         samples, args.bins,
@@ -173,7 +179,16 @@ if __name__ == '__main__':
                     measures[-1]['entropy_truth'] = entropy(target).item()
                     measures[-1]['kl_truth'] = kl_divergence(target, hist).item()
 
+                    if size <= args.wd_limit:
+                        measures[-1]['wd_truth'] = w_distance(target, hist).item()
+                    else:
+                        measures[-1]['wd_truth'] = None
+
                     del target
+                else:
+                    measures[-1]['entropy_truth'] = None
+                    measures[-1]['kl_truth'] = None
+                    measures[-1]['wd_truth'] = None
 
                 #### Coverage
                 if args.coverage:
@@ -185,6 +200,8 @@ if __name__ == '__main__':
                         pdf = hist.view(-1)
 
                     measures[-1]['quantile'] = pdf[pdf >= val].sum().item()
+                else:
+                    measures[-1]['quantile'] = None
 
                 #### Consistence
                 if args.consistence and not hist.is_sparse:
@@ -226,9 +243,14 @@ if __name__ == '__main__':
 
         ## Export consistence
         if args.consistence:
-            divergences = pd.DataFrame(divergences)
-            divergences.to_csv(args.output.replace('.csv', f'_{idx}.csv'))
+            df = pd.DataFrame(divergences)
+            df.to_csv(args.output.replace('.csv', f'_{idx}.csv'))
 
-    # Save
-    measures = pd.DataFrame(measures)
-    measures.to_csv(args.output, index=False)
+        ## Append measures
+        df = pd.DataFrame(measures)
+        df.to_csv(
+            args.output,
+            index=False,
+            mode='a',
+            header=not os.path.exists(args.output),
+        )
