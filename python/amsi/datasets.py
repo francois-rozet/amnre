@@ -29,6 +29,9 @@ class OnlineLTEDataset(data.IterableDataset):
             theta, x = self.simulator.sample(self.batch_shape)
             theta_prime = self.prior.sample(self.batch_shape)
 
+            if hasattr(self.simulator, 'noise'):
+                x = x + self.simulator.noise(self.batch_shape)
+
             yield theta, theta_prime, x  # (theta, theta', x)
 
 
@@ -38,7 +41,7 @@ class OfflineLTEDataset(data.IterableDataset):
     def __init__(
         self,
         filename: str,
-        chunk_size: str = 2 ** 17,  # 131072
+        chunk_size: str = 2 ** 16,  # 65536
         batch_size: int = 2 ** 10,  # 1024
         device: str = 'cpu',
     ):
@@ -61,21 +64,34 @@ class OfflineLTEDataset(data.IterableDataset):
         theta = torch.from_numpy(self.f['theta'][idx])
         x = torch.from_numpy(self.f['x'][idx])
 
+        if 'noise' in self.f:
+            noise = torch.from_numpy(self.f['noise'][idx])
+            x = x + noise
+
         return theta, x
 
     def __iter__(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         random.shuffle(self.chunks)
 
         for chunk in self.chunks:
-            theta_chunk = torch.tensor(self.f['theta'][chunk])
-            x_chunk = torch.tensor(self.f['x'][chunk])
+            # Load
+            theta_chunk = torch.from_numpy(self.f['theta'][chunk])
+            x_chunk = torch.from_numpy(self.f['x'][chunk])
 
-            if self.device == 'cuda':
-                theta_chunk, x_chunk = theta_chunk.pin_memory(), x_chunk.pin_memory()
-
+            # Shuffle
             order = torch.randperm(len(theta_chunk))
             theta_chunk, x_chunk = theta_chunk[order], x_chunk[order]
 
+            # Noise
+            if 'noise' in self.f:
+                noise_chunk = torch.from_numpy(self.f['noise'][chunk])
+                x_chunk = x_chunk + noise_chunk
+
+            # CUDA
+            if self.device == 'cuda':
+                theta_chunk, x_chunk = theta_chunk.pin_memory(), x_chunk.pin_memory()
+
+            # Split
             for theta, x in zip(
                 theta_chunk.split(self.batch_size),
                 x_chunk.split(self.batch_size),

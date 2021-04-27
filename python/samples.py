@@ -15,13 +15,12 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Samples')
 
-    parser.add_argument('-device', default='cpu', choices=['cpu', 'cuda'])
     parser.add_argument('-simulator', default='SLCP', choices=['SLCP', 'MLCP', 'GW'])
 
     parser.add_argument('-seed', type=int, default=0, help='random seed')
     parser.add_argument('-samples', type=int, default=2 ** 20, help='number of samples')
-    parser.add_argument('-chunk-size', type=int, default=2 ** 17, help='chunk size')
-    parser.add_argument('-batch-size', type=int, default=2 ** 14, help='batch size')
+    parser.add_argument('-chunk-size', type=int, default=2 ** 16, help='chunk size')
+    parser.add_argument('-batch-size', type=int, default=2 ** 12, help='batch size')
 
     parser.add_argument('-basis-size', type=int, default=128, help='basis size')
     parser.add_argument('-basis-samples', type=int, default=2 ** 15, help='number of samples for the basis')
@@ -49,11 +48,9 @@ if __name__ == '__main__':
     else:  # args.simulator == 'SCLP'
         simulator = amsi.SLCP()
 
-    simulator.to(args.device)
-
     # Placeholders
     theta, x = simulator.sample()
-    theta, x = theta.cpu().numpy(), x.cpu().numpy()
+    theta, x = theta.numpy(), x.numpy()
 
     # Fill dataset
     if os.path.dirname(args.output):
@@ -75,22 +72,34 @@ if __name__ == '__main__':
             dtype=x.dtype,
         )
 
+        if hasattr(simulator, 'noise'):
+            noise_set = f.create_dataset_like('noise', x_set)
+        else:
+            noise_set = None
+
         ## Sampling
         with tqdm(total=args.samples) as tq:
             for i in range(0, args.samples, args.chunk_size):
-                theta_chunk, x_chunk = [], []
+                theta_chunk, x_chunk, noise_chunk = [], [], []
 
                 for _ in range(0, args.chunk_size, args.batch_size):
                     theta, x = simulator.sample((args.batch_size,))
-                    theta, x = theta.cpu().numpy(), x.cpu().numpy()
+                    theta, x = theta.numpy(), x.numpy()
 
                     theta_chunk.append(theta)
                     x_chunk.append(x)
+
+                    if noise_set is not None:
+                        noise = simulator.noise((args.batch_size,)).numpy()
+                        noise_chunk.append(noise)
 
                     tq.update(args.batch_size)
 
                 theta_set[i:i + args.chunk_size] = np.concatenate(theta_chunk)
                 x_set[i:i + args.chunk_size] = np.concatenate(x_chunk)
+
+                if noise_set is not None:
+                    noise_set[i:i + args.chunk_size] = np.concatenate(noise_chunk)
 
         ## Basis
         if args.simulator == 'GW':

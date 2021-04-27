@@ -53,6 +53,8 @@ class PoissonMask(nn.Module):
 
 
 def bit_repr(integers: torch.LongTensor, powers: torch.LongTensor) -> torch.BoolTensor:
+    r"""Bit representation of integers"""
+
     return integers.to(powers).unsqueeze(-1).bitwise_and(powers) != 0
 
 

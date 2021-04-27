@@ -8,6 +8,9 @@ from torch.distributions import Distribution
 from typing import Tuple, List
 
 
+Distribution.set_default_validate_args(False)
+
+
 class Simulator(nn.Module):
     r"""Abstract Simulator"""
 
