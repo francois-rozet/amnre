@@ -5,6 +5,7 @@ dependencies:
   - pip=21.0.1
   - python=3.8.5
   - pip:
+    - gwpy==2.0.4
     - h5py==3.2.1
     - matplotlib==3.3.4
     - numpy==1.19.5

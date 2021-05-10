@@ -19,22 +19,108 @@ from . import Simulator
 
 
 @lru_cache(None)
-def ligo_nsd(length: int, delta_f: float, cutoff_freq: float) -> tuple:
-    r"""LIGO's Noise Spectral Density (NSD) and its standard deviation"""
+def ligo_detector(name: str):
+    r"""Get LIGO detector"""
 
-    try:
-        from pycbc.psd import aLIGOZeroDetHighPower
-    except:
-        return None, np.ones(length)
+    from pycbc.detector import Detector
 
-    psd = aLIGOZeroDetHighPower(length, delta_f, cutoff_freq)
+    return Detector(name)
 
-    idx = int(psd.duration * cutoff_freq)
-    sigma = np.sqrt(psd.data / psd.delta_f) / 2
-    sigma[:idx] = sigma[idx]
-    sigma[-1] = sigma[-2]
 
-    return psd, sigma
+@lru_cache(None)
+def event_time(name: str = 'GW150914') -> float:
+    r"""Get event's GPS time"""
+
+    from pycbc.catalog import Merger
+
+    return Merger(name).data['GPS']
+
+
+def tuckey_window(
+    duration: int,  # s
+    sample_rate: float,  # Hz
+    roll_off: float = 0.4,  # /
+) -> np.ndarray:
+    r"""Tuckey window function
+
+    References:
+        https://en.wikipedia.org/wiki/Window_function
+    """
+
+    from scipy.signal import tukey
+
+    length = int(duration * sample_rate)
+    alpha = 2 * roll_off / duration
+
+    return tukey(length, alpha)
+
+
+def event_nsd(
+    name: str = 'GW150914',
+    detectors: Tuple[str] = ('H1', 'L1'),
+    duration: float = 8.,  # s
+    segment: float = 1024.,  # s
+) -> np.ndarray:
+    r"""Get event's Noise Spectral Density (NSD)"""
+
+    from gwpy.timeseries import TimeSeries
+    from pycbc.psd import welch
+
+    # Fetch
+    time = event_time(name) - duration
+
+    strains = {
+        ifo: TimeSeries.fetch_open_data(ifo, time - segment, time, cache=True).to_pycbc()
+        for ifo in detectors
+    }
+
+    # Welch
+    for s in strains.values():
+        w = tuckey_window(duration, s.sample_rate)
+        factor = (w ** 2).mean()
+        break
+
+    psds = {
+        ifo: welch(s, len(w), len(w), window=w, avg_method='median') * factor
+        for (ifo, s) in strains.items()
+    }
+
+    return np.stack([p.data for p in psds.values()])
+
+
+def event_dft(
+    name: str = 'GW150914',
+    detectors: Tuple[str] = ('H1', 'L1'),
+    duration: float = 8.,  # s
+    shift: float = 2.,  # s
+) -> np.ndarray:
+    r"""Get event's Discrete Fourier Transform (DFT)"""
+
+    from gwpy.timeseries import TimeSeries
+
+    # Fetch
+    time = event_time(name) + shift
+
+    strains = {
+        ifo: TimeSeries.fetch_open_data(ifo, time - duration, time, cache=True).to_pycbc()
+        for ifo in detectors
+    }
+
+    for s in strains.values():
+        sample_rate = s.sample_rate
+        break
+
+    # Discrete Fourier Transform
+    for s in strains.values():
+        w = tuckey_window(duration, s.sample_rate)
+        break
+
+    dfts = np.stack([
+        (s * w).to_frequencyseries().cyclic_time_shift(shift).data
+        for s in strains.values()
+    ])
+
+    return dfts
 
 
 def lal_spins(
@@ -85,10 +171,11 @@ def lal_spins(
 def generate_waveform(
     theta: np.ndarray,
     approximant: str = 'IMRPhenomPv2',
-    duration: float = 4.,  # s
-    sample_rate: int = 2048,  # Hz
+    duration: float = 8.,  # s
+    sample_rate: float = 2048.,  # Hz
     ref_freq: float = 20.,  # Hz
-    detectors: List[str] = ['H1', 'L1'],
+    event: str = 'GW150914',
+    detectors: Tuple[str] = ('H1', 'L1'),
 ) -> np.ndarray:
     r"""Waveform generation in the frequency domain
 
@@ -98,8 +185,7 @@ def generate_waveform(
     """
 
     try:
-        from pycbc.waveform import get_td_waveform
-        from pycbc.detector import Detector
+        from pycbc.waveform import get_fd_waveform
     except:
         shape = len(detectors), int(duration * sample_rate / 2) + 1
         return np.zeros(shape, dtype=complex)
@@ -110,9 +196,10 @@ def generate_waveform(
     wav_args = {
         ## Static
         'approximant': approximant,
-        'delta_t': 1 / sample_rate,
+        'delta_f': 1 / duration,
         'f_lower': ref_freq,
         'f_ref': ref_freq,
+        'f_final': sample_rate / 2,
         ## Variables
         'mass1': theta[0],
         'mass2': theta[1],
@@ -121,14 +208,15 @@ def generate_waveform(
     }
 
     spins = lal_spins(*theta[0:3], *theta[4:11], ref_freq)
+    wav_args.update(spins)
 
-    hp, hc = get_td_waveform(**wav_args, **spins)
+    hp, hc = get_fd_waveform(**wav_args)
 
     # Projection on detectors
     proj_args = {
         ## Static
         'method': 'constant',
-        'reference_time': 921726855,  # 18/03/1999 - 03:14:15
+        'reference_time': event_time(event),
         ## Variables
         'polarization': theta[11],
         'ra': theta[12],
@@ -136,67 +224,50 @@ def generate_waveform(
     }
 
     signals = {
-        det: Detector(det).project_wave(hp, hc, **proj_args)
-        for det in detectors
+        ifo: ligo_detector(ifo).project_wave(hp, hc, **proj_args)
+        for ifo in detectors
     }
 
-    # Fast Fourier Transform
-    length = int(duration * sample_rate)
-
-    for det, s in signals.items():
-        if len(s) < length:
-            s.prepend_zeros(length - len(s))
-        else:
-            s = s[len(s) - length:]
-
-        signals[det] = s.to_frequencyseries()
-
-    # Export
-    x = np.stack([s.data for s in signals.values()])
-
-    return x
+    return np.stack([s.data for s in signals.values()])
 
 
-def whiten_waveform(
-    x: np.ndarray,
-    duration: float = 4.,  # s
-    cutoff_freq: float = 20.,  # Hz
+def crop_dft(
+    dft: np.ndarray,
+    duration: float = 8.,  # s
+    sample_rate: float = 2048.,  # Hz
+    ref_freq: float = 20.,  # Hz
 ) -> np.ndarray:
-    """Whitening in the frequency domain
+    r"""Crop Discrete Fourier Transform (DFT)"""
 
-    References:
-        http://pycbc.org/pycbc/latest/html/pycbc.types.html#pycbc.types.timeseries.TimeSeries.whiten
-    """
+    return dft[..., int(duration * ref_freq):int(duration * sample_rate / 2) + 1]
 
-    _, sigma = ligo_nsd(x.shape[-1], 1 / duration, cutoff_freq)
 
-    return x / sigma
+def whiten_dft(
+    dft: np.ndarray,
+    psd: np.ndarray,
+    duration: float = 8.,  # s
+) -> np.ndarray:
+    r"""Whiten Discrete Fourier Transform (DFT) w.r.t. Power Spectral Density (PSD)"""
+
+    return 2 * dft / np.sqrt(psd * duration)
 
 
 def generate_noise(
     shape: Tuple[int, ...] = (),
-    duration: float = 4.,  # s
-    sample_rate: int = 2048,  # Hz
-    cutoff_freq: float = 20.,  # Hz
-    detectors: list = ['H1', 'L1'],
+    duration: float = 8.,  # s
+    sample_rate: float = 2048.,  # Hz
+    ref_freq: float = 20.,  # Hz
+    detectors: Tuple[str] = ('H1', 'L1'),
 ) -> np.ndarray:
-    r"""Detector noise generation in the frequency domain
+    r"""Generate unit gaussian noise in the frequency domain"""
 
-    References:
-        https://pycbc.org/pycbc/latest/html/pycbc.noise.html#pycbc.noise.gaussian.frequency_noise_from_psd
-    """
-
-    shape = shape + (len(detectors), int(duration * sample_rate / 2) + 1)
-
-    psd, _ = ligo_nsd(shape[-1], 1 / duration, cutoff_freq)
-    mask = psd != 0
+    length = int(duration * sample_rate / 2) + 1 - int(duration * ref_freq)
+    shape = shape + (len(detectors), length)
 
     real = np.random.normal(size=shape)
     imag = np.random.normal(size=shape)
 
-    noise = (real + 1j * imag) * mask
-
-    return noise
+    return real + 1j * imag
 
 
 def svd_basis(x: np.ndarray, n: int) -> np.ndarray:
@@ -225,6 +296,11 @@ class GW(Simulator):
 
         self.fiducial = fiducial
         self.basis = basis
+
+        try:
+            self.psd = crop_dft(event_nsd())
+        except:
+            self.psd = 1e-42
 
         bounds = torch.tensor([
             [10., 80.],  # mass1 [solar masses]
@@ -291,8 +367,8 @@ class GW(Simulator):
         with Pool(cpu_count()) as p:
             x = p.map(generate_waveform, iter(seq))
 
-        x = np.stack(x)
-        x = whiten_waveform(x)
+        x = crop_dft(np.stack(x))
+        x = whiten_dft(x, self.psd)
 
         if self.basis is not None:
             x = self.reduction(x)
