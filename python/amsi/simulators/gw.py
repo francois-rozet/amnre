@@ -22,7 +22,10 @@ from . import Simulator
 def ligo_nsd(length: int, delta_f: float, cutoff_freq: float) -> tuple:
     r"""LIGO's Noise Spectral Density (NSD) and its standard deviation"""
 
-    from pycbc.psd import aLIGOZeroDetHighPower
+    try:
+        from pycbc.psd import aLIGOZeroDetHighPower
+    except:
+        return None, np.ones(length)
 
     psd = aLIGOZeroDetHighPower(length, delta_f, cutoff_freq)
 
@@ -47,7 +50,7 @@ def lal_spins(
     theta_jn: float,
     ref_freq: float = 20.,  # Hz
 ) -> dict:
-    """Convert to parameters to spins
+    """Convert parameters to LAL spins
 
     References:
         https://github.com/lscsoft/bilby/blob/master/bilby/gw/conversion.py#L53
@@ -57,25 +60,25 @@ def lal_spins(
     from lalsimulation import SimInspiralTransformPrecessingNewInitialConditions as transform
 
     if (a_1 == 0.0 or tilt_1 in [0, np.pi]) and (a_2 == 0.0 or tilt_2 in [0, np.pi]):
-        iota, spin_1x, spin_1y, spin_1z, spin_2x, spin_2y, spin_2z = (
+        iota, spin1x, spin1y, spin1z, spin2x, spin2y, spin2z = (
             theta_jn,
             0., 0., a_1 * np.cos(tilt_1),
             0., 0., a_2 * np.cos(tilt_2),
         )
     else:
-        iota, spin_1x, spin_1y, spin_1z, spin_2x, spin_2y, spin_2z = transform(
+        iota, spin1x, spin1y, spin1z, spin2x, spin2y, spin2z = transform(
             theta_jn, phi_jl, tilt_1, tilt_2, phi_12, a_1, a_2,
             mass1 * MSUN_SI, mass2 * MSUN_SI, ref_freq, coa_phase,
         )
 
     return {
         'inclination': iota,
-        'spin_1x': spin_1x,
-        'spin_2x': spin_2x,
-        'spin_1y': spin_1y,
-        'spin_2y': spin_2y,
-        'spin_1z': spin_1z,
-        'spin_2z': spin_2z,
+        'spin1x': spin1x,
+        'spin2x': spin2x,
+        'spin1y': spin1y,
+        'spin2y': spin2y,
+        'spin1z': spin1z,
+        'spin2z': spin2z,
     }
 
 
@@ -90,7 +93,7 @@ def generate_waveform(
     r"""Waveform generation in the frequency domain
 
     References:
-    	https://github.com/gwastro/pycbc
+        https://github.com/gwastro/pycbc
         https://github.com/stephengreen/lfi-gw
     """
 
@@ -327,7 +330,24 @@ class BasisGW(Simulator):
         return sim
 
 
-class PowerLaw(Uniform):
+class SuperUniform(Uniform):
+    r"""Abstract more-than-uniform distribution"""
+
+    def __init__(self, low: torch.Tensor, high: torch.Tensor):
+        super().__init__(self._func(low), self._func(high))
+
+        self.log_volume = (self.high - self.low).log()
+        self.low_, self.high_ = low, high
+
+    def sample(self, sample_shape: torch.Size = ()) -> torch.Tensor:
+        return self._ifunc(super().sample(sample_shape))
+
+    def log_prob(self, value: torch.Tensor) -> torch.Tensor:
+        mask = torch.logical_and(value.ge(self.low_), value.le(self.high_))
+        return (mask * self._dfunc(value).relu()).log() - self.log_volume
+
+
+class PowerLaw(SuperUniform):
     r"""Power law distribution
 
     References:
@@ -335,55 +355,47 @@ class PowerLaw(Uniform):
     """
 
     def __init__(self, low: torch.Tensor, high: torch.Tensor, n: int = 3):
-        super().__init__(low ** n, high ** n)
-
         self.n = n
-        self.log_n = math.log(n)
-        self.log_volume = (self.high - self.low).log()
+        super().__init__(low, high)
 
-    def sample(self, sample_shape: torch.Size = ()) -> torch.Tensor:
-        return super().sample(sample_shape) ** (1 / self.n)
+    def _func(self, x):
+        return x ** self.n
 
-    def log_prob(self, value: torch.Tensor) -> torch.Tensor:
-        return value.log() * (self.n - 1) + self.log_n - self.log_volume
+    def _dfunc(self, x):
+        return self.n * x ** (self.n - 1)
+
+    def _ifunc(self, x):
+        return x ** (1 / self.n)
 
 
-class SinAngle(Uniform):
+class SinAngle(SuperUniform):
     r"""Sine angle distribution
 
     References:
         https://pycbc.org/pycbc/latest/html/pycbc.distributions.html#pycbc.distributions.angular.SinAngle
     """
 
-    def __init__(self, low: torch.Tensor, high: torch.Tensor):
-        super().__init__(high.cos(), low.cos())
+    @staticmethod
+    def _func(x):
+        return 1 - torch.cos(x)
 
-        self.log_volume = (self.high - self.low).log()
+    _dfunc = torch.sin
 
-    def sample(self, sample_shape: torch.Size = ()) -> torch.Tensor:
-        return super().sample(sample_shape).acos()
-
-    def log_prob(self, value: torch.Tensor) -> torch.Tensor:
-        return value.sin().log() - self.log_volume
+    @staticmethod
+    def _ifunc(x):
+        return torch.acos(1 - x)
 
 
-class CosAngle(Uniform):
+class CosAngle(SuperUniform):
     r"""Cosine angle distribution
 
     References:
         https://pycbc.org/pycbc/latest/html/pycbc.distributions.html#pycbc.distributions.angular.CosAngle
     """
 
-    def __init__(self, low: torch.Tensor, high: torch.Tensor):
-        super().__init__(low.sin(), high.sin())
-
-        self.log_volume = (self.high - self.low).log()
-
-    def sample(self, sample_shape: torch.Size = ()) -> torch.Tensor:
-        return super().sample(sample_shape).asin()
-
-    def log_prob(self, value: torch.Tensor) -> torch.Tensor:
-        return value.cos().log() - self.log_volume
+    _func = torch.sin
+    _dfunc = torch.cos
+    _ifunc = torch.asin
 
 
 class Joint(Distribution):

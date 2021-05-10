@@ -11,5 +11,5 @@ dependencies:
     - pandas==1.2.3
     - pycbc==1.18.0
     - torch==1.8.1
-    - torchist==0.1.2
+    - torchist==0.1.6
     - tqdm==4.59.0

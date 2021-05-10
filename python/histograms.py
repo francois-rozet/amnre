@@ -23,22 +23,19 @@ plt.rcParams['legend.fontsize'] = 'small'
 plt.rcParams['savefig.transparent'] = True
 
 
-def get_pairs(hist: torch.Tensor) -> List[List[torch.Tensor]]:
+def pairwise(hist: torch.Tensor) -> List[List[torch.Tensor]]:
     hists = []
 
-    for i in reversed(range(hist.dim())):
-        hists.insert(0, [])
+    for i in range(hist.dim()):
+        hists.append([])
 
         for j in range(i + 1):
             h = marginalize(hist, dim=[i, j], keep=True)
+
             if h.is_sparse:
                 h = h.to_dense()
 
-            hists[0].append(h.cpu())
-
-        hist = marginalize(hist, dim=i)
-        if hist.is_sparse:
-            hist = hist.coalesce()
+            hists[-1].append(h.cpu())
 
     return hists
 
@@ -81,6 +78,7 @@ def corner(
                 ax.step(x, hist, color='k', linewidth=1.)
             else:
                 levels = coverage(hist, percentiles)
+                levels = np.unique(levels)
 
                 cf = ax.contourf(
                     x, y, hist,

@@ -118,7 +118,6 @@ class MetropolisHastings(data.IterableDataset):
         self,
         start: int,
         stop: int = None,
-        chains: int = 1,
         groupby: int = 1,
     ) -> Iterable[torch.Tensor]:
         r""" (x_0, x_1, ..., x_n) ~ p(x) """
@@ -126,15 +125,7 @@ class MetropolisHastings(data.IterableDataset):
         if stop is None:
             start, stop = 0, start
 
-        if chains > 1:
-            seq = map(
-                torch.cat,
-                zip(*([self] * chains)),
-            )
-        else:
-            seq = self
-
-        seq = islice(seq, start, stop)
+        seq = islice(self, start, stop)
 
         if groupby > 1:
             buff = []

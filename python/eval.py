@@ -16,7 +16,7 @@ if __name__ == '__main__':
     parser.add_argument('-masks', nargs='+', default=['=1', '=2'], help='marginalization masks')
 
     parser.add_argument('-batch-size', type=int, default=2 ** 12, help='batch size')
-    parser.add_argument('-sigma', type=float, default=2e-2, help='sigma')
+    parser.add_argument('-sigma', type=float, default=2e-2, help='relative standard deviation')
     parser.add_argument('-start', type=int, default=2 ** 6, help='start sample')
     parser.add_argument('-stop', type=int, default=2 ** 14, help='end sample')
     parser.add_argument('-groupby', type=int, default=2 ** 8, help='sample group size')
@@ -84,27 +84,23 @@ if __name__ == '__main__':
                     bounded=True,
                     sparse=True,
                     device='cpu',
-                )
+                ).coalesce()
 
                 torch.save(truth, pthfile)
             else:
-                truth = torch.load(pthfile).coalesce()
+                truth = torch.load(pthfile)._coalesced_(True)
 
-            truth = normalize(truth)
+            truth, _ = normalize(truth)
 
             ## Plot
             pdffile = pthfile.replace('.pth', '.pdf')
 
-            if not os.path.exists(pdffile):
-                pairs = get_pairs(truth)
-
+            if args.plots and not os.path.exists(pdffile):
                 corner(
-                    pairs, low.cpu(), high.cpu(),
+                    pairwise(truth), low.cpu(), high.cpu(),
                     labels=simulator.labels, truth=theta_star,
                     filename=pthfile.replace('.pth', '.pdf'),
                 )
-
-                del pairs
         else:
             truth = None
 
@@ -124,6 +120,8 @@ if __name__ == '__main__':
             model.eval()
 
             for mask in masks:
+                textmask = amsi.mask2str(mask)
+
                 if type(model) is amsi.NRE:
                     nre = model
                 else:
@@ -134,6 +132,8 @@ if __name__ == '__main__':
                 z_star = model.encoder(x_star)
 
                 ### Hist
+                numel = args.bins ** torch.count_nonzero(mask).item()
+
                 sampler = amsi.RESampler(
                     nre,
                     simulator.masked_prior(mask),
@@ -142,8 +142,7 @@ if __name__ == '__main__':
                     sigma=args.sigma * (high[mask] - low[mask]),
                 )
 
-                size = args.bins ** torch.count_nonzero(mask)
-                if size > args.mcmc_limit:
+                if numel > args.mcmc_limit:
                     samples = sampler(args.start, args.stop, groupby=args.groupby)
                     hist = reduce_histogramdd(
                         samples, args.bins,
@@ -151,27 +150,24 @@ if __name__ == '__main__':
                         bounded=True,
                         sparse=True,
                         device='cpu',
-                    )
+                    ).coalesce()
                 else:
                     hist = sampler.histogram(args.bins, low[mask], high[mask])
 
                 ### Quantitative
-                textmask = amsi.mask2str(mask)
-
-                tot = marginalize(hist, dim=[], keep=True)
-                hist = normalize(hist)
+                hist, total = normalize(hist)
 
                 measures.append({
                     'index': idx,
                     'mask': textmask,
-                    'total_probability': tot.item(),
+                    'total_probability': total.item(),
                     'entropy': entropy(hist).item(),
                 })
 
-                #### Accuracy w.r.t. truth
+                #### Accuracy w.r.t. ground truth
                 if truth is not None:
-                    dims = torch.arange(len(mask))[mask]
-                    target = marginalize(truth, dim=dims.tolist(), keep=True)
+                    dims = torch.arange(len(mask))[~mask]
+                    target = marginalize(truth, dim=dims.tolist())
 
                     if not hist.is_sparse:
                         target = target.to_dense()
@@ -181,7 +177,7 @@ if __name__ == '__main__':
                     measures[-1]['entropy_truth'] = entropy(target).item()
                     measures[-1]['kl_truth'] = kl_divergence(target, hist).item()
 
-                    if size <= args.wd_limit:
+                    if numel <= args.wd_limit:
                         measures[-1]['wd_truth'] = w_distance(target, hist).item()
                     else:
                         measures[-1]['wd_truth'] = None
@@ -194,18 +190,20 @@ if __name__ == '__main__':
 
                 #### Coverage
                 if args.coverage:
-                    val = hist[tuple(index_star[mask])]
+                    p = hist[tuple(index_star[mask])]
 
                     if hist.is_sparse:
                         pdf = hist.values()
                     else:
                         pdf = hist.view(-1)
 
-                    measures[-1]['quantile'] = pdf[pdf >= val].sum().item()
+                    measures[-1]['quantile'] = pdf[pdf >= p].sum().item()
                 else:
                     measures[-1]['quantile'] = None
 
                 #### Consistence
+                hist = hist.cpu()
+
                 if args.consistence and not hist.is_sparse:
                     divergences[textmask] = {textmask: 0.}
 
@@ -233,7 +231,7 @@ if __name__ == '__main__':
                     labels = [l for (l, m) in zip(simulator.labels, mask) if m]
 
                     fig = corner(
-                        get_pairs(hist), low[mask].cpu(), high[mask].cpu(),
+                        pairwise(hist), low[mask].cpu(), high[mask].cpu(),
                         labels=labels, truth=theta_star[mask],
                         filename=args.output.replace('.csv', f'_{idx}_{textmask}.pdf'),
                     )
@@ -247,7 +245,7 @@ if __name__ == '__main__':
                     else:
                         i, j = indices.tolist()
 
-                    pairs[j][i] = hist.cpu()
+                    pairs[j][i] = hist
 
         ## Append measures
         df = pd.DataFrame(measures)

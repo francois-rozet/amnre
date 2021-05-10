@@ -56,10 +56,10 @@ def build_instance(settings: dict) -> Tuple[amsi.Simulator, nn.Module]:
 
     # Moments
     if settings['weights'] is None:
-        moments = torch.zeros(theta_size), torch.ones(theta_size)
-    else:
         theta = simulator.prior.sample((2 ** 16,))
         moments = torch.mean(theta, dim=0), torch.std(theta, dim=0)
+    else:
+        moments = torch.zeros(theta_size), torch.ones(theta_size)
 
     # Model & Encoder
     if settings['encoder'] is None:
@@ -68,23 +68,25 @@ def build_instance(settings: dict) -> Tuple[amsi.Simulator, nn.Module]:
         encoder = amsi.MLP(x.shape, **settings['encoder'])
         x_size = encoder.output_size
 
-    default_model = {
+    model_args = {
         'num_layers': 10,
         'hidden_size': 256,
         'activation': 'SELU',
     }
-    default_model.update(settings['model'])
-    settings['model'] = default_model
+    model_args.update(settings['model'])
+    model_args['encoder'] = encoder
+    model_args['moments'] = moments
 
     if settings['arbitrary']:
-        model = amsi.AMNRE(theta_size, x_size, encoder=encoder, moments=moments, **settings['model'])
+        model_args['hyper'] = settings['hyper']
+        model = amsi.AMNRE(theta_size, x_size, **model_args)
     else:
         masks = build_masks(settings['masks'], theta_size)
 
         if masks is None:
-            model = amsi.NRE(theta_size, x_size, encoder=encoder, moments=moments, **settings['model'])
+            model = amsi.NRE(theta_size, x_size, **model_args)
         else:
-            model = amsi.MNRE(masks, x_size, encoder=encoder, moments=moments, **settings['model'])
+            model = amsi.MNRE(masks, x_size, **model_args)
 
     ## Weights
     if settings['weights'] is not None:
@@ -115,6 +117,7 @@ if __name__ == '__main__':
     parser.add_argument('-simulator', default='SLCP', choices=['SLCP', 'MLCP', 'GW'])
     parser.add_argument('-samples', default=None, help='samples file (H5)')
     parser.add_argument('-model', type=json.loads, default={}, help='model architecture')
+    parser.add_argument('-hyper', type=json.loads, default=None, help='hypernet architecture')
     parser.add_argument('-encoder', type=json.loads, default=None, help='encoder architecture')
     parser.add_argument('-masks', nargs='+', default=[], help='marginalzation masks')
     parser.add_argument('-arbitrary', default=False, action='store_true', help='arbitrary design')
