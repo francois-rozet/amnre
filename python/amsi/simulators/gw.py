@@ -200,31 +200,31 @@ def generate_waveform(
         'mass1': theta[0],
         'mass2': theta[1],
         'coa_phase': theta[2],
-        'distance': theta[3],
+        'distance': theta[4],
     }
 
-    spins = lal_spins(*theta[0:3], *theta[4:11], ref_freq)
+    spins = lal_spins(*theta[:3], *theta[5:12], ref_freq)
     wav_args.update(spins)
 
     hp, hc = get_fd_waveform(**wav_args)
 
     # Projection on detectors
-    proj_args = {
-        ## Static
-        'method': 'constant',
-        'reference_time': event_time(event),
-        ## Variables
-        'polarization': theta[11],
-        'ra': theta[12],
-        'dec': theta[13],
-    }
+    ref_time = event_time(event)
 
-    signals = {
-        ifo: ligo_detector(ifo).project_wave(hp, hc, **proj_args)
-        for ifo in detectors
-    }
+    signals = []
 
-    return np.stack([s.data for s in signals.values()])
+    for ifo in detectors:
+        detector = ligo_detector(ifo)
+
+        fp, fc = detector.antenna_pattern(theta[13], theta[14], theta[12], ref_time)
+        hd = fp * hp + fc * hc
+
+        dt = detector.time_delay_from_earth_center(theta[13], theta[14], ref_time)
+        hd = hd.cyclic_time_shift(dt + theta[3])
+
+        signals.append(hd)
+
+    return np.stack([s.data for s in signals])
 
 
 def crop_dft(
@@ -297,9 +297,10 @@ class GW(Simulator):
             [10., 80.],  # mass1 [solar masses]
             [10., 80.],  # mass2 [solar masses]
             [0., 2 * math.pi],  # coalesence phase [rad]
+            [-0.1, 0.1],  # coalescence time [s]
             [100., 1000.],  # luminosity distance [megaparsec]
-            [0., 0.99],  # a_1 [/]
-            [0., 0.99],  # a_2 [/]
+            [0., 0.88],  # a_1 [/]
+            [0., 0.88],  # a_2 [/]
             [0., math.pi],  # tilt_1 [rad]
             [0., math.pi],  # tilt_2 [rad]
             [0., 2 * math.pi],  # phi_12 [rad]
@@ -325,11 +326,11 @@ class GW(Simulator):
             if not b:
                 continue
 
-            if i == 3:  # luminosity distance
+            if i == 4:  # luminosity distance
                 m = PowerLaw(self.low[i], self.high[i], n=3)
-            elif i in [6, 7, 10]:  # [tilt_1, tilt_2, theta_jn]
+            elif i in [7, 8, 11]:  # [tilt_1, tilt_2, theta_jn]
                 m = SinAngle(self.low[i], self.high[i])
-            elif i == 13:  # declination
+            elif i == 14:  # declination
                 m = CosAngle(self.low[i], self.high[i])
             else:
                 m = Uniform(self.low[i], self.high[i])
@@ -341,7 +342,7 @@ class GW(Simulator):
     @property
     def labels(self) -> List[str]:
         labels = [
-            'm_1', 'm_2', r'\phi_c', 'd_L',
+            'm_1', 'm_2', r'\phi_c', 't_c', 'd_L',
             'a_1', 'a_2', r'\theta_1', r'\theta_2', r'\phi_{12}', r'\phi_{JL}',
             r'\theta_{JN}', r'\psi', r'\alpha', r'\delta',
         ]
@@ -351,7 +352,8 @@ class GW(Simulator):
 
     def forward(self, theta: torch.Tensor) -> torch.Tensor:
         if self.fiducial:
-            theta[..., 3] = self.high[3]
+            theta[..., 3] = 0.
+            theta[..., 4] = self.high[4]
 
         seq = theta.view(-1, theta.size(-1)).numpy()
 
