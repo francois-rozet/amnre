@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from functools import lru_cache
+from functools import lru_cache, cached_property
 from multiprocessing import cpu_count, Pool
 from torch.distributions import (
     Distribution,
@@ -63,7 +63,7 @@ def event_nsd(
 ) -> np.ndarray:
     r"""Get event's Noise Spectral Density (NSD)"""
 
-    from gwpy.timeseries import TimeSeries
+    from gwpy.timeseries import TimeSeries  # /!\ export GWPY_RCPARAMS=0
     from pycbc.psd import welch
 
     # Fetch
@@ -184,11 +184,7 @@ def generate_waveform(
         https://github.com/stephengreen/lfi-gw
     """
 
-    try:
-        from pycbc.waveform import get_fd_waveform
-    except:
-        shape = len(detectors), int(duration * sample_rate / 2) + 1
-        return np.zeros(shape, dtype=complex)
+    from pycbc.waveform import get_fd_waveform
 
     theta = theta.astype(float)
 
@@ -297,11 +293,6 @@ class GW(Simulator):
         self.fiducial = fiducial
         self.basis = basis
 
-        try:
-            self.psd = crop_dft(event_nsd())
-        except:
-            self.psd = 1e-42
-
         bounds = torch.tensor([
             [10., 80.],  # mass1 [solar masses]
             [10., 80.],  # mass2 [solar masses]
@@ -377,6 +368,10 @@ class GW(Simulator):
 
         return torch.from_numpy(x)
 
+    @cached_property
+    def psd(self) -> np.ndarray:
+        return crop_dft(event_nsd())
+
     def reduction(self, x: np.ndarray) -> np.ndarray:
         x = x @ self.basis
         x = x.view(x.real.dtype).reshape(x.shape + (2,))
@@ -391,6 +386,15 @@ class GW(Simulator):
             noise = self.reduction(noise)
 
         return torch.from_numpy(noise)
+
+    def events(self) -> np.ndarray:
+        x = crop_dft(event_dft())
+        x = whiten_dft(x, self.psd)
+
+        if self.basis is not None:
+            x = self.reduction(x)
+
+        return x[None]
 
 
 class BasisGW(Simulator):

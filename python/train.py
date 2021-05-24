@@ -41,15 +41,28 @@ def build_masks(strings: List[str], theta_size: int) -> torch.BoolTensor:
 def build_instance(settings: dict) -> Tuple[amsi.Simulator, nn.Module]:
     # Simulator
     if settings['simulator'] == 'GW':
-        with h5py.File(settings['samples'], 'r') as f:
-            simulator = amsi.GW(basis=f['basis'][:])
+        simulator = amsi.GW()
     elif settings['simulator'] == 'MLCP':
         simulator = amsi.MLCP()
     else:  # settings['simulator'] == 'SCLP'
         simulator = amsi.SLCP()
 
+    simulator.to(settings['device'])
+
+    # Dataset
+    if settings['samples'] is None:
+        dataset = amsi.OnlineLTEDataset(simulator, settings['batch_size'])
+    else:
+        dataset = amsi.OfflineLTEDataset(settings['samples'], batch_size=settings['batch_size'], device=settings['device'])
+
     # Placeholders
-    theta, x = simulator.sample()
+    if settings['samples'] is None:
+        theta, x = simulator.sample()
+    else:
+        theta, x = dataset[0]
+
+        if theta is None:
+            theta = simulator.prior.sample()
 
     theta_size = theta.numel()
     x_size = x.numel()
@@ -93,19 +106,17 @@ def build_instance(settings: dict) -> Tuple[amsi.Simulator, nn.Module]:
         weights = torch.load(settings['weights'], map_location='cpu')
         model.load_state_dict(weights)
 
-    # Device
-    simulator.to(settings['device'])
     model.to(settings['device'])
 
-    return simulator, model
+    return simulator, dataset, model
 
 
-def from_settings(filename: str) -> Tuple[amsi.Simulator, nn.Module]:
+def load_settings(filename: str) -> dict:
     with open(filename) as f:
         settings = json.load(f)
         settings['weights'] = filename.replace('.json', '.pth')
 
-    return build_instance(settings)
+    return settings
 
 
 if __name__ == '__main__':
@@ -142,8 +153,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args.date = datetime.now().strftime(r'%Y-%m-%d %H:%M:%S')
 
+    settings = vars(args)
+
     # Simulator & Model
-    simulator, model = build_instance(vars(args))
+    simulator, trainset, model = build_instance(settings)
 
     ## Arbitrary masks
     if args.arbitrary:
@@ -183,17 +196,11 @@ if __name__ == '__main__':
         min_lr=args.min_lr,
     )
 
-    # Dataset
-    if args.samples:
-        trainset = amsi.OfflineLTEDataset(args.samples, batch_size=args.batch_size, device=args.device)
-    else:
-        trainset = amsi.OnlineLTEDataset(simulator, args.batch_size)
-
     # Target network
     if args.target is None or type(model) is amsi.NRE:
         targetnet = None
     else:
-        _, targetnet = from_settings(args.target)
+        _, _, targetnet = build_instance(load_settings(args.target))
         targetnet.to(args.device)
 
     # Training
@@ -276,7 +283,7 @@ if __name__ == '__main__':
 
     ## Settings
     with open(args.output.replace('.pth', '.json'), 'w') as f:
-        json.dump(vars(args), f, indent=4)
+        json.dump(settings, f, indent=4)
 
     ## Stats
     df = pd.DataFrame(stats)

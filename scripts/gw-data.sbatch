@@ -14,5 +14,6 @@
 conda activate amsi
 
 cd /home/frozet/amsi/python
-python samples.py -simulator GW -seed 1 -samples 4194304 -basis-from $SCRATCH/samples/gw-basis.h5 -o $SCRATCH/samples/gw-train.h5
-python samples.py -simulator GW -seed 2 -samples 131072 -basis-from $SCRATCH/samples/gw-basis.h5 -o $SCRATCH/samples/gw-test.h5
+
+python samples.py -simulator GW -seed 1 -samples 4194304 -basis-from $SCRATCH/samples/gw-event.h5 -o $SCRATCH/samples/gw-train.h5
+python samples.py -simulator GW -seed 2 -samples 131072 -basis-from $SCRATCH/samples/gw-event.h5 -o $SCRATCH/samples/gw-test.h5

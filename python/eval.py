@@ -29,7 +29,8 @@ if __name__ == '__main__':
     parser.add_argument('-coverage', default=False, action='store_true')
     parser.add_argument('-consistence', default=False, action='store_true')
     parser.add_argument('-plots', default=False, action='store_true')
-    parser.add_argument('-composition', default=False, action='store_true')
+
+    parser.add_argument('-compositions', nargs='+', default=[], help='composition masks')
 
     parser.add_argument('-o', '--output', default=None, help='output file (CSV)')
 
@@ -42,8 +43,12 @@ if __name__ == '__main__':
     elif os.path.dirname(args.output):
         os.makedirs(os.path.dirname(args.output), exist_ok=True)
 
+    # Settings
+    settings = load_settings(args.settings)
+    settings['samples'] = args.samples
+
     # Simulator & Model
-    simulator, model = from_settings(args.settings)
+    simulator, dataset, model = build_instance(settings)
 
     low, high = simulator.low, simulator.high
     device = low.device
@@ -55,15 +60,15 @@ if __name__ == '__main__':
         masks = build_masks(args.masks, low.numel())
 
     # Samples
-    data = amsi.OfflineLTEDataset(args.samples)
-
     for idx in tqdm(range(*args.indices)):
-        theta_star, x_star = data[idx]
-        x_star = x_star.to(device)
+        theta_star, x_star = dataset[idx]
 
-        index_star = (theta_star - low.cpu()) / (high.cpu() - low.cpu())
-        index_star = (args.bins * index_star).long()
-        index_star = index_star.clip(max=args.bins - 1)
+        if theta_star is not None:
+            index_star = (theta_star - low) / (high - low)
+            index_star = (args.bins * index_star).long()
+            index_star = index_star.clip(max=args.bins - 1)
+
+            theta_star, index_star = theta_star.cpu(), index_star.cpu()
 
         ## Ground truth
         if args.accuracy and simulator.tractable:
@@ -109,12 +114,11 @@ if __name__ == '__main__':
         hists = {}
         divergences = {}
 
-        if args.composition:
-            pairs = [
+        if args.compositions:
+            tiles = [
                 [None] * (i + 1)
                 for i in range(theta_star.numel())
             ]
-            present = torch.tensor([False] * len(pairs))
 
         with torch.no_grad():
             model.eval()
@@ -153,6 +157,7 @@ if __name__ == '__main__':
                     ).coalesce()
                 else:
                     hist = sampler.histogram(args.bins, low[mask], high[mask])
+                    hist = torch.nan_to_num(hist)
 
                 ### Quantitative
                 hist, total = normalize(hist)
@@ -189,7 +194,7 @@ if __name__ == '__main__':
                     measures[-1]['wd_truth'] = None
 
                 #### Coverage
-                if args.coverage:
+                if args.coverage and theta_star is not None:
                     p = hist[tuple(index_star[mask])]
 
                     if hist.is_sparse:
@@ -232,12 +237,11 @@ if __name__ == '__main__':
 
                     fig = corner(
                         pairwise(hist), low[mask].cpu(), high[mask].cpu(),
-                        labels=labels, truth=theta_star[mask],
+                        labels=labels, truth=None if theta_star is None else theta_star[mask],
                         filename=args.output.replace('.csv', f'_{idx}_{textmask}.pdf'),
                     )
 
-                if args.composition and hist.dim() <= 2:
-                    present = torch.logical_or(present, mask)
+                if args.compositions and hist.dim() <= 2:
                     indices = torch.nonzero(mask).squeeze()
 
                     if indices.numel() == 1:
@@ -245,7 +249,7 @@ if __name__ == '__main__':
                     else:
                         i, j = indices.tolist()
 
-                    pairs[j][i] = hist
+                    tiles[j][i] = hist
 
         ## Append measures
         df = pd.DataFrame(measures)
@@ -261,22 +265,18 @@ if __name__ == '__main__':
             df = pd.DataFrame(divergences)
             df.to_csv(args.output.replace('.csv', f'_{idx}.csv'))
 
-        ## Composition
-        if args.composition:
-            for i in reversed(range(present.numel())):
-                if not present[i]:
-                    pairs.pop(i)
-                    continue
+        ## Compositions
+        for textmask in args.compositions:
+            mask = amsi.str2mask(textmask)
+            pairs = [
+                [tiles[i][j] for j in range(i + 1) if mask[j]]
+                for i in range(len(tiles)) if mask[i]
+            ]
 
-                for j in reversed(range(i + 1)):
-                    if not present[j]:
-                        pairs[i].pop(j)
-
-            textmask = amsi.mask2str(present)
-            labels = [l for (l, m) in zip(simulator.labels, present) if m]
+            labels = [l for (l, m) in zip(simulator.labels, mask) if m]
 
             fig = corner(
-                pairs, low[present].cpu(), high[present].cpu(),
-                labels=labels, truth=theta_star[present],
+                pairs, low[mask].cpu(), high[mask].cpu(),
+                labels=labels, truth=None if theta_star is None else theta_star[mask],
                 filename=args.output.replace('.csv', f'_{idx}_{textmask}_c.pdf'),
             )

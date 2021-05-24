@@ -14,8 +14,9 @@
 conda activate amsi
 
 cd /home/frozet/amsi/python
+
 python train.py -simulator SLCP -samples $SCRATCH/samples/slcp-train.h5 -arbitrary -o $SCRATCH/models/slcp-amnre.pth -device cuda
 python eval.py $SCRATCH/models/slcp-amnre.json $SCRATCH/samples/slcp-test.h5 -masks =5 -indices 0 3 -plots -o $SCRATCH/results/slcp-amnre.csv
-python eval.py $SCRATCH/models/slcp-amnre.json $SCRATCH/samples/slcp-test.h5 -masks =1 =2 -indices 0 3 -consistence -composition -o $SCRATCH/results/slcp-amnre.csv
+python eval.py $SCRATCH/models/slcp-amnre.json $SCRATCH/samples/slcp-test.h5 -masks =1 =2 -indices 0 3 -consistence -compositions 11111 -o $SCRATCH/results/slcp-amnre.csv
 python eval.py $SCRATCH/models/slcp-amnre.json $SCRATCH/samples/slcp-test.h5 -masks =1 =2 -indices 0 64 -accuracy -o $SCRATCH/results/slcp-amnre_acc.csv
 python eval.py $SCRATCH/models/slcp-amnre.json $SCRATCH/samples/slcp-test.h5 -masks =1 -indices 0 16384 -coverage -o $SCRATCH/results/slcp-amnre_cov.csv

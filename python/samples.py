@@ -26,6 +26,8 @@ if __name__ == '__main__':
     parser.add_argument('-basis-samples', type=int, default=2 ** 15, help='number of samples for the basis')
     parser.add_argument('-basis-from', default=None, help='basis file (H5)')
 
+    parser.add_argument('-events', default=False, action='store_true', help='events dataset')
+
     parser.add_argument('-o', '--output', default='../products/samples/out.h5', help='output file (H5)')
 
     args = parser.parse_args()
@@ -57,7 +59,16 @@ if __name__ == '__main__':
         os.makedirs(os.path.dirname(args.output), exist_ok=True)
 
     with h5py.File(args.output, 'w') as f:
+        ## Basis
+        if args.simulator == 'GW':
+            f.create_dataset('basis', data=simulator.basis)
 
+        ## Events
+        if args.events:
+            f.create_dataset('x', data=simulator.events())
+            exit()
+
+        ## Samples
         theta_set = f.create_dataset(
             'theta',
             (args.samples,) + theta.shape,
@@ -77,7 +88,6 @@ if __name__ == '__main__':
         else:
             noise_set = None
 
-        ## Sampling
         with tqdm(total=args.samples) as tq:
             for i in range(0, args.samples, args.chunk_size):
                 theta_chunk, x_chunk, noise_chunk = [], [], []
@@ -100,7 +110,3 @@ if __name__ == '__main__':
 
                 if noise_set is not None:
                     noise_set[i:i + args.chunk_size] = np.concatenate(noise_chunk)
-
-        ## Basis
-        if args.simulator == 'GW':
-            f.create_dataset('basis', data=simulator.basis)

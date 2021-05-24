@@ -58,17 +58,21 @@ class OfflineLTEDataset(data.IterableDataset):
         self.device = device
 
     def __len__(self) -> int:
-        return len(self.f['theta'])
+        return len(self.f['x'])
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        theta = torch.from_numpy(self.f['theta'][idx])
+        if 'theta' in self.f:
+            theta = torch.from_numpy(self.f['theta'][idx]).to(self.device)
+        else:
+            theta = None
+
         x = torch.from_numpy(self.f['x'][idx])
 
         if 'noise' in self.f:
             noise = torch.from_numpy(self.f['noise'][idx])
             x = x + noise
 
-        return theta, x
+        return theta, x.to(self.device)
 
     def __iter__(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         random.shuffle(self.chunks)

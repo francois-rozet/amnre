@@ -14,5 +14,6 @@
 conda activate amsi
 
 cd /home/frozet/amsi/python
+
 python samples.py -simulator SLCP -seed 0 -samples 4194304 -o $SCRATCH/samples/slcp-train.h5
 python samples.py -simulator SLCP -seed 1 -samples 131072 -o $SCRATCH/samples/slcp-test.h5

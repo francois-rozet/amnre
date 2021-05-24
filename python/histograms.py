@@ -62,13 +62,14 @@ def corner(
 
     for i in range(D):
         for j in range(D):
+            ax = axs[i, j]
+
             # Only lower triangle
             if j > i or hists[i][j] is None:
-                axs[i, j].axis('off')
+                ax.axis('off')
                 continue
 
             # Data
-            ax = axs[i, j]
             hist = np.asarray(hists[i][j]).T
             x = np.linspace(low[j], high[j], hist.shape[-1])
             y = np.linspace(low[i], high[i], hist.shape[0])
@@ -76,6 +77,7 @@ def corner(
             # Draw
             if i == j:
                 ax.step(x, hist, color='k', linewidth=1.)
+                ax.set_ylim(bottom=0.)
             else:
                 levels = coverage(hist, percentiles)
                 levels = np.unique(levels)
