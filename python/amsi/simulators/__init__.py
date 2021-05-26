@@ -14,7 +14,7 @@ Distribution.set_default_validate_args(False)
 class Simulator(nn.Module):
     r"""Abstract Simulator"""
 
-    @property
+    @cached_property
     def prior(self) -> Distribution:
         r""" p(theta) """
 

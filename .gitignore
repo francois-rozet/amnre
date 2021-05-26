@@ -8,6 +8,9 @@
 # Products
 products/
 
+# Misc
+**/misc/*/
+
 
 ##########
 # Python #

@@ -38,10 +38,12 @@ def build_masks(strings: List[str], theta_size: int) -> torch.BoolTensor:
     return torch.cat(masks)
 
 
-def build_instance(settings: dict) -> Tuple[amsi.Simulator, nn.Module]:
+def build_instance(settings: dict) -> tuple:
     # Simulator
     if settings['simulator'] == 'GW':
         simulator = amsi.GW()
+    elif settings['simulator'] == 'HH':
+        simulator = amsi.HH()
     elif settings['simulator'] == 'MLCP':
         simulator = amsi.MLCP()
     else:  # settings['simulator'] == 'SCLP'
@@ -125,7 +127,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Training')
 
     parser.add_argument('-device', default='cpu', choices=['cpu', 'cuda'])
-    parser.add_argument('-simulator', default='SLCP', choices=['SLCP', 'MLCP', 'GW'])
+    parser.add_argument('-simulator', default='SLCP', choices=['SLCP', 'MLCP', 'GW', 'HH'])
     parser.add_argument('-samples', default=None, help='samples file (H5)')
     parser.add_argument('-model', type=json.loads, default={}, help='model architecture')
     parser.add_argument('-hyper', type=json.loads, default=None, help='hypernet architecture')

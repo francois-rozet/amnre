@@ -50,10 +50,6 @@ if __name__ == '__main__':
     else:  # args.simulator == 'SCLP'
         simulator = amsi.SLCP()
 
-    # Placeholders
-    theta, x = simulator.sample()
-    theta, x = theta.numpy(), x.numpy()
-
     # Fill dataset
     if os.path.dirname(args.output):
         os.makedirs(os.path.dirname(args.output), exist_ok=True)
@@ -65,10 +61,18 @@ if __name__ == '__main__':
 
         ## Events
         if args.events:
-            f.create_dataset('x', data=simulator.events())
+            theta, x = simulator.events()
+
+            if theta is not None:
+                f.create_dataset('theta', data=np.asarray(theta))
+            f.create_dataset('x', data=np.asarray(x))
+
             exit()
 
         ## Samples
+        theta, x = simulator.sample()
+        theta, x = np.asarray(theta), np.asarray(x)
+
         theta_set = f.create_dataset(
             'theta',
             (args.samples,) + theta.shape,
@@ -94,13 +98,14 @@ if __name__ == '__main__':
 
                 for _ in range(0, args.chunk_size, args.batch_size):
                     theta, x = simulator.sample((args.batch_size,))
-                    theta, x = theta.numpy(), x.numpy()
+                    theta, x = np.asarray(theta), np.asarray(x)
 
                     theta_chunk.append(theta)
                     x_chunk.append(x)
 
                     if noise_set is not None:
-                        noise = simulator.noise((args.batch_size,)).numpy()
+                        noise = simulator.noise((args.batch_size,))
+                        noise = np.asarray(noise)
                         noise_chunk.append(noise)
 
                     tq.update(args.batch_size)

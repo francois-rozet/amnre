@@ -339,7 +339,7 @@ class GW(Simulator):
 
         return Independent(Joint(marginals), 1)
 
-    @property
+    @cached_property
     def labels(self) -> List[str]:
         labels = [
             'm_1', 'm_2', r'\phi_c', 't_c', 'd_L',
@@ -389,14 +389,14 @@ class GW(Simulator):
 
         return torch.from_numpy(noise)
 
-    def events(self) -> np.ndarray:
+    def events(self) -> Tuple[None, np.ndarray]:
         x = crop_dft(event_dft())
         x = whiten_dft(x, self.psd)
 
         if self.basis is not None:
             x = self.reduction(x)
 
-        return x[None]
+        return None, x[None]
 
 
 class BasisGW(Simulator):
