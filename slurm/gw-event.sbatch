@@ -13,6 +13,6 @@
 
 conda activate amsi
 
-cd /home/frozet/amsi/python
+cd ~/amsi
 
 python samples.py -simulator GW -seed 0 -events -o $SCRATCH/samples/gw-event.h5

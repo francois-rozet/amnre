@@ -4,9 +4,8 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import torchist
 
-from torchist import *
-from torchist.metrics import *
 from typing import List, Union
 
 
@@ -15,12 +14,18 @@ Vector = Union[List[Scalar], np.ndarray, torch.Tensor]
 Array = Union[List[List[Scalar]], np.ndarray, torch.Tensor]
 
 
-plt.rcParams['axes.axisbelow'] = True
-plt.rcParams['axes.grid'] = True
-plt.rcParams['figure.autolayout'] = True
-plt.rcParams['font.size'] = 12.
-plt.rcParams['legend.fontsize'] = 'small'
-plt.rcParams['savefig.transparent'] = True
+def set_rcParams(usetex: bool = True):
+    plt.rcParams['axes.axisbelow'] = True
+    plt.rcParams['axes.grid'] = True
+    plt.rcParams['figure.autolayout'] = True
+    plt.rcParams['font.size'] = 12.
+    plt.rcParams['legend.fontsize'] = 'small'
+    plt.rcParams['savefig.transparent'] = True
+
+    if usetex and mpl.checkdep_usetex(True):
+        plt.rcParams['font.family'] = ['serif']
+        plt.rcParams['font.serif'] = ['Computer Modern']
+        plt.rcParams['text.usetex'] = True
 
 
 def pairwise(hist: torch.Tensor) -> List[List[torch.Tensor]]:
@@ -30,7 +35,7 @@ def pairwise(hist: torch.Tensor) -> List[List[torch.Tensor]]:
         hists.append([])
 
         for j in range(i + 1):
-            h = marginalize(hist, dim=[i, j], keep=True)
+            h = torchist.marginalize(hist, dim=[i, j], keep=True)
 
             if h.is_sparse:
                 h = h.to_dense()
@@ -77,6 +82,7 @@ def corner(
             # Draw
             if i == j:
                 ax.step(x, hist, color='k', linewidth=1.)
+                ax.set_xlim(left=x[0], right=x[-1])
                 ax.set_ylim(bottom=0.)
             else:
                 levels = coverage(hist, percentiles)
@@ -113,8 +119,14 @@ def corner(
                     ax.plot(
                         truth[j], truth[i],
                         color='darkorange',
-                        marker='*',
-                        markersize=6.,
+                        marker='o',
+                        markersize=4.,
+                    )
+                else:
+                    ax.axvline(
+                        truth[i],
+                        color='darkorange',
+                        linewidth=2.,
                     )
 
     # Save file

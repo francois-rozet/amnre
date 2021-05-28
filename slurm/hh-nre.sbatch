@@ -13,7 +13,11 @@
 
 conda activate amsi
 
-cd ~/amsi/python
+cd ~/amsi
 
-python train.py -simulator HH -samples $SCRATCH/samples/hh-train.h5 -epochs 256 -o $SCRATCH/models/hh-nre.pth -device cuda
+MODEL='{"num_layers": 10, "hidden_size": 256, "activation": "SELU"}'
+
+python train.py -simulator HH -samples $SCRATCH/samples/hh-train.h5 -valid $SCRATCH/samples/hh-valid.h5 -model "$MODEL" -o $SCRATCH/models/hh-nre.pth -device cuda
+
+python eval.py $SCRATCH/models/hh-nre.json $SCRATCH/samples/hh-event.h5 -plots -o $SCRATCH/results/hh-nre-event.csv
 python eval.py $SCRATCH/models/hh-nre.json $SCRATCH/samples/hh-test.h5 -indices 0 3 -plots -o $SCRATCH/results/hh-nre.csv

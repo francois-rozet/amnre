@@ -20,18 +20,22 @@ class UnitNorm(nn.Module):
     r"""Unit Normalization (UnitNorm) layer
 
     Args:
-        shift: The input shift
-        scale: The input scale
+        mu: The input mean
+        sigma: The input standard deviation
     """
 
-    def __init__(self, shift: torch.Tensor, scale: torch.Tensor):
+    def __init__(self, mu: torch.Tensor, sigma: torch.Tensor):
         super().__init__()
 
-        self.register_buffer('shift', shift)
-        self.register_buffer('iscale', 1 / scale)
+        self.register_buffer('mu', mu)
+        self.register_buffer('isigma', 1 / sigma)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        return (input - self.shift) * self.iscale
+        return (input - self.mu) * self.isigma
+
+    def extra_repr(self) -> str:
+        mu, sigma = self.mu.cpu(), (1 / self.isigma).cpu()
+        return '\n'.join([f'(mu): {mu}', f'(sigma): {sigma}'])
 
 
 class MLP(nn.Sequential):
@@ -49,39 +53,79 @@ class MLP(nn.Sequential):
 
     def __init__(
         self,
-        input_size: Union[int, torch.Size],
-        output_size: int = 1,
+        input_size: int,
+        output_size: int,
         hidden_size: int = 64,
         num_layers: int = 1,
         bias: bool = True,
         dropout: float = 0.,
         activation: str = 'ReLU',
     ):
-        dropout = nn.Dropout(dropout) if dropout > 0. else nn.Identity()
+        dropout = nn.Dropout(dropout) if dropout > 0. else None
         activation = ACTIVATIONS[activation]()
 
-        layers = []
+        layers = [dropout, nn.Linear(input_size, hidden_size, bias), activation]
 
-        if type(input_size) is not int:
-            layers.append(nn.Flatten(-len(input_size)))
-            input_size = input_size.numel()
+        for _ in range(num_layers):
+            layers.extend([dropout, nn.Linear(hidden_size, hidden_size, bias), activation])
 
-        layers.extend([
-            nn.Linear(input_size, hidden_size, bias),
-            activation,
-            dropout,
-        ])
+        layers.extend([dropout, nn.Linear(hidden_size, output_size, bias)])
 
-        for i in range(num_layers):
-            layers.extend([
-                nn.Linear(hidden_size, hidden_size, bias),
-                activation,
-                dropout,
-            ])
-
-        layers.append(nn.Linear(hidden_size, output_size, bias))
+        layers = filter(lambda l: l is not None, layers)
 
         super().__init__(*layers)
+
+        self.input_size = input_size
+        self.output_size = output_size
+
+
+class ResBlock(MLP):
+    r"""Residual Block (ResBlock)
+
+    Args:
+        input_size: The input (and output) size.
+
+        **kwargs are transmitted to `MLP`.
+    """
+
+    def __init__(self, input_size: int, **kwargs):
+        super().__init__(input_size, input_size, **kwargs)
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        return input + super().forward(input)
+
+
+class ResNet(nn.Sequential):
+    r"""Residual Network (ResNet)
+
+    Args:
+        input_size: The input size.
+        output_size: The output size.
+        res_size: The intermediate residual size.
+        num_blocks: The number of residual blocks.
+
+        **kwargs are transmitted to `ResBlock` and `MLP`.
+    """
+
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        res_size: int = 64,
+        num_blocks: int = 3,
+        **kwargs,
+    ):
+        activation = ACTIVATIONS[kwargs.get('activation', 'ReLU')]
+        bias = kwargs.get('bias', True)
+
+        blocks = [nn.Linear(input_size, res_size, bias)]
+
+        for _ in range(num_blocks):
+            blocks.extend(ResBlock(res_size, **kwargs))
+
+        blocks.append(nn.Linear(res_size, output_size, bias))
+
+        super().__init__(*blocks)
 
         self.input_size = input_size
         self.output_size = output_size
@@ -185,8 +229,8 @@ class MNRE(nn.Module):
             NRE(
                 m.sum().item(),
                 x_size,
-                moments= None if moments is None else (shift[m], scale[m]),
-                **kwargs
+                moments=None if moments is None else (shift[m], scale[m]),
+                **kwargs,
             ) for m in self.masks
         ])
 
@@ -212,7 +256,7 @@ class MNRE(nn.Module):
         for mask, nre in iter(self):
             ratios.append(nre(theta[..., mask], x))
 
-        return torch.stack(ratios, dim=-1)
+        return torch.stack(ratios)
 
 
 class AMNRE(nn.Module):
@@ -223,33 +267,31 @@ class AMNRE(nn.Module):
     Args:
         theta_size: The size of the parameters.
 
-        *args and **kwargs are transmitted to `NRE`.
+        **kwargs are transmitted to `NRE`.
     """
 
     def __init__(
         self,
         theta_size: int,
-        *args,
+        x_size: int,
+        encoder: nn.Module = nn.Identity(),
         moments: Tuple[torch.Tensor, torch.Tensor] = None,
         hyper: dict = None,
         **kwargs,
     ):
         super().__init__()
 
+        self.encoder = encoder
         self.normalize = nn.Identity() if moments is None else UnitNorm(*moments)
 
         if hyper is None:
-            self.net = NRE(theta_size * 2, *args, **kwargs)
+            self.net = NRE(theta_size * 2, x_size, **kwargs)
             self.hyper = None
         else:
-            self.net = NRE(theta_size, *args, **kwargs)
+            self.net = NRE(theta_size, x_size, **kwargs)
             self.hyper = HyperNet(self.net, theta_size, **hyper)
 
         self.register_buffer('default', torch.ones(theta_size).bool())
-
-    @property
-    def encoder(self) -> nn.Module:
-        return self.net.encoder
 
     def clear(self) -> None:
         with torch.no_grad():

@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 
 from train import *
-from histograms import *
+from torchist import reduce_histogramdd, normalize, marginalize
+from torchist.metrics import entropy, kl_divergence, w_distance
+
+amsi.set_rcParams()
 
 
 if __name__ == '__main__':
@@ -54,10 +57,12 @@ if __name__ == '__main__':
     device = low.device
 
     # Masks
+    theta_size = low.numel()
+
     if type(model) is amsi.NRE:
-        masks = torch.tensor([[True] * low.numel()])
+        masks = torch.tensor([[True] * theta_size])
     else:
-        masks = build_masks(args.masks, low.numel())
+        masks = amsi.list2masks(args.masks, theta_size)
 
     # Samples
     for idx in tqdm(range(*args.indices)):
@@ -101,8 +106,8 @@ if __name__ == '__main__':
             pdffile = pthfile.replace('.pth', '.pdf')
 
             if args.plots and not os.path.exists(pdffile):
-                corner(
-                    pairwise(truth), low.cpu(), high.cpu(),
+                amsi.corner(
+                    amsi.pairwise(truth), low.cpu(), high.cpu(),
                     labels=simulator.labels, truth=theta_star,
                     filename=pthfile.replace('.pth', '.pdf'),
                 )
@@ -117,11 +122,13 @@ if __name__ == '__main__':
         if args.compositions:
             tiles = [
                 [None] * (i + 1)
-                for i in range(theta_star.numel())
+                for i in range(theta_size)
             ]
 
         with torch.no_grad():
             model.eval()
+
+            z_star = model.encoder(x_star)
 
             for mask in masks:
                 textmask = amsi.mask2str(mask)
@@ -132,8 +139,6 @@ if __name__ == '__main__':
                     nre = model[mask]
                     if nre is None:
                         continue
-
-                z_star = model.encoder(x_star)
 
                 ### Hist
                 numel = args.bins ** torch.count_nonzero(mask).item()
@@ -235,8 +240,8 @@ if __name__ == '__main__':
                 if args.plots:
                     labels = [l for (l, m) in zip(simulator.labels, mask) if m]
 
-                    fig = corner(
-                        pairwise(hist), low[mask].cpu(), high[mask].cpu(),
+                    fig = amsi.corner(
+                        amsi.pairwise(hist), low[mask].cpu(), high[mask].cpu(),
                         labels=labels, truth=None if theta_star is None else theta_star[mask],
                         filename=args.output.replace('.csv', f'_{idx}_{textmask}.pdf'),
                     )
@@ -275,7 +280,7 @@ if __name__ == '__main__':
 
             labels = [l for (l, m) in zip(simulator.labels, mask) if m]
 
-            fig = corner(
+            fig = amsi.corner(
                 pairs, low[mask].cpu(), high[mask].cpu(),
                 labels=labels, truth=None if theta_star is None else theta_star[mask],
                 filename=args.output.replace('.csv', f'_{idx}_{textmask}_c.pdf'),

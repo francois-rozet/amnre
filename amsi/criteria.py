@@ -58,26 +58,28 @@ class RELoss(nn.Module):
         l1 = self.bce(ratio, torch.ones_like(ratio))
         l0 = self.bce(ratio_prime, torch.zeros_like(ratio))
 
-        return (l1 + l0) / ratio.size(0)
+        return (l1 + l0) / ratio.size(-1)
 
 
 class RDLoss(nn.Module):
     r"""Ratio Distillation Loss (RDLoss)
 
-    (r(theta_a | x) - r(theta | x))^2
+    1. (r(theta_a | x) - r(theta | x))^2
+    2. (1 / r(theta_a | x) - 1 / r(theta | x))^2
 
     Note:
-        theta_b (theta / theta_a) has to be sampled from the prior p(theta_b)
+        1. theta_b has to be sampled from p(theta_b)
+        2. theta_b has to be sampled from p(theta_b | theta_a, x)
     """
 
     def forward(
         self,
-        ratio: torch.Tensor,  # log r(theta_a | x)
-        target: torch.Tensor,  # log r(theta | x)
+        ratio: torch.Tensor,  # (+-) log r(theta_a | x)
+        target: torch.Tensor,  # (+-) log r(theta | x)
     ) -> torch.Tensor:
         ratio, target = ratio.exp(), target.exp()
 
-        return F.mse_loss(ratio, target.detach())
+        return F.mse_loss(ratio, target.detach().expand(ratio.shape))
 
 
 class SDLoss(nn.Module):
@@ -86,7 +88,7 @@ class SDLoss(nn.Module):
     (grad log r(theta_a | x) - grad log r(theta | x))^2
 
     Note:
-        theta_b (theta / theta_a) has to be sampled from the prior p(theta_b)
+        theta_b has to be sampled from p(theta_b | theta_a, x)
     """
 
     def forward(
@@ -106,4 +108,4 @@ class SDLoss(nn.Module):
             torch.ones_like(target),
         )[0]
 
-        return F.mse_loss(score, target.detach())
+        return F.mse_loss(score, target.detach().expand(score.shape))

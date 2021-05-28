@@ -8,12 +8,13 @@
 #SBATCH --cpus-per-task=8           # Number of CPU cores to allocate
 #SBATCH --mem-per-cpu=4G            # Memory to allocate per allocated CPU core
 #SBATCH --gres=gpu:0                # Number of GPU's
-#SBATCH --time=2-00:00:00           # Max execution time
+#SBATCH --time=1-00:00:00           # Max execution time
 #
 
 conda activate amsi
 
-cd /home/frozet/amsi/python
+cd ~/amsi
 
-python samples.py -simulator GW -seed 1 -samples 4194304 -basis-from $SCRATCH/samples/gw-event.h5 -o $SCRATCH/samples/gw-train.h5
+python samples.py -simulator GW -seed 1 -samples 1048576 -basis-from $SCRATCH/samples/gw-event.h5 -o $SCRATCH/samples/gw-train.h5
 python samples.py -simulator GW -seed 2 -samples 131072 -basis-from $SCRATCH/samples/gw-event.h5 -o $SCRATCH/samples/gw-test.h5
+python samples.py -simulator GW -seed 3 -samples 131072 -basis-from $SCRATCH/samples/gw-event.h5 -o $SCRATCH/samples/gw-valid.h5

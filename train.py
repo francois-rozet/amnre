@@ -18,24 +18,17 @@ from typing import List, Tuple
 import amsi
 
 
-def build_masks(strings: List[str], theta_size: int) -> torch.BoolTensor:
-    if not strings:
-        return None
+def build_encoder(input_size: torch.Size, name: str = None, **kwargs) -> tuple:
+    flatten = nn.Flatten(-len(input_size))
 
-    masks = []
-
-    every = amsi.enumerate_masks(theta_size)
-    sizes = every.sum(dim=1)
-
-    for s in strings:
-        if s.startswith('='):
-            select = every.sum(dim=1) == int(s[1:])
-            masks.append(every[select])
-        else:
-            mask = amsi.str2mask(s)[:theta_size]
-            masks.append(mask.unsqueeze(0))
-
-    return torch.cat(masks)
+    if name == 'MLP':
+        net = amsi.MLP(input_size.numel(), **kwargs)
+        return nn.Sequential(flatten, net), net.output_size
+    elif name == 'ResNet':
+        net = amsi.ResNet(input_size.numel(), **kwargs)
+        return nn.Sequential(flatten, net), net.output_size
+    else:
+        return flatten, input_size.numel()
 
 
 def build_instance(settings: dict) -> tuple:
@@ -71,24 +64,15 @@ def build_instance(settings: dict) -> tuple:
 
     # Moments
     if settings['weights'] is None:
-        theta = simulator.prior.sample((2 ** 16,))
+        theta = simulator.prior.sample((2 ** 18,))
         moments = torch.mean(theta, dim=0), torch.std(theta, dim=0)
     else:
         moments = torch.zeros(theta_size), torch.ones(theta_size)
 
     # Model & Encoder
-    if settings['encoder'] is None:
-        encoder = nn.Flatten(-len(x.shape))
-    else:
-        encoder = amsi.MLP(x.shape, **settings['encoder'])
-        x_size = encoder.output_size
+    encoder, x_size = build_encoder(x.shape, **settings['encoder'])
 
-    model_args = {
-        'num_layers': 10,
-        'hidden_size': 256,
-        'activation': 'SELU',
-    }
-    model_args.update(settings['model'])
+    model_args = settings['model'].copy()
     model_args['encoder'] = encoder
     model_args['moments'] = moments
 
@@ -96,9 +80,9 @@ def build_instance(settings: dict) -> tuple:
         model_args['hyper'] = settings['hyper']
         model = amsi.AMNRE(theta_size, x_size, **model_args)
     else:
-        masks = build_masks(settings['masks'], theta_size)
+        masks = amsi.list2masks(settings['masks'], theta_size)
 
-        if masks is None:
+        if len(masks) == 0:
             model = amsi.NRE(theta_size, x_size, **model_args)
         else:
             model = amsi.MNRE(masks, x_size, **model_args)
@@ -121,6 +105,54 @@ def load_settings(filename: str) -> dict:
     return settings
 
 
+def routine(dataset) -> Tuple[float, torch.Tensor]:
+    losses = []
+
+    start = time()
+
+    for theta, theta_prime, x in islice(dataset, args.per_epoch):
+        theta.requires_grad = True
+        z = model.encoder(x)
+
+        if args.arbitrary:
+            if model.hyper is None:
+                mask = mask_sampler(theta.shape[:1])
+            else:
+                mask = mask_sampler()
+                model[mask]
+                mask = None
+
+            ratio = model(theta, z, mask)
+            ratio_prime = model(theta_prime, z, mask)
+        else:
+            ratio = model(theta, z)
+            ratio_prime = model(theta_prime, z)
+
+        l = criterion(ratio, ratio_prime)
+
+        if targetnet is not None:
+            target_z = targetnet.encoder(x)
+            target_ratio = targetnet(theta, target_z)
+            target_ratio_prime = targetnet(theta_prime, target_z)
+
+            rdl = args.coef[0] * rd_loss(ratio_prime, target_ratio_prime)
+            irdl = args.coef[0] * rd_loss(-ratio, -target_ratio)
+            sdl = args.coef[1] * sd_loss(theta, ratio, target_ratio)
+
+            l = torch.stack([l, rdl, irdl, sdl])
+
+        losses.append(l.tolist())
+
+        if l.requires_grad:
+            optimizer.zero_grad()
+            l.sum().backward()
+            optimizer.step()
+
+    end = time()
+
+    return end - start, torch.tensor(losses)
+
+
 if __name__ == '__main__':
     import argparse
 
@@ -131,7 +163,7 @@ if __name__ == '__main__':
     parser.add_argument('-samples', default=None, help='samples file (H5)')
     parser.add_argument('-model', type=json.loads, default={}, help='model architecture')
     parser.add_argument('-hyper', type=json.loads, default=None, help='hypernet architecture')
-    parser.add_argument('-encoder', type=json.loads, default=None, help='encoder architecture')
+    parser.add_argument('-encoder', type=json.loads, default={}, help='encoder architecture')
     parser.add_argument('-masks', nargs='+', default=[], help='marginalzation masks')
     parser.add_argument('-arbitrary', default=False, action='store_true', help='arbitrary design')
     parser.add_argument('-weights', default=None, help='warm-start weights')
@@ -146,6 +178,8 @@ if __name__ == '__main__':
     parser.add_argument('-threshold', type=float, default=1e-2, help='scheduler threshold')
     parser.add_argument('-factor', type=float, default=2e-1, help='scheduler factor')
     parser.add_argument('-min-lr', type=float, default=1e-6, help='minimum learning rate')
+
+    parser.add_argument('-valid', default=None, help='validation samples file (H5)')
 
     parser.add_argument('-target', default=None, help='target network settings file (JSON)')
     parser.add_argument('-coef', type=float, nargs=2, default=(1e-3, 1e-3), help='distillation losses coefficients')
@@ -172,7 +206,7 @@ if __name__ == '__main__':
         elif args.masks[0] == 'uniform':
             mask_sampler = amsi.UniformMask(theta_size)
         else:
-            masks = build_masks(args.masks, theta_size)
+            masks = amsi.list2masks(args.masks, theta_size)
             mask_sampler = amsi.SelectionMask(masks)
 
         mask_sampler.to(args.device)
@@ -198,6 +232,10 @@ if __name__ == '__main__':
         min_lr=args.min_lr,
     )
 
+    # Validation
+    if args.valid is not None:
+        validset = amsi.OfflineLTEDataset(args.valid, batch_size=args.batch_size, device=args.device)
+
     # Target network
     if args.target is None or type(model) is amsi.NRE:
         targetnet = None
@@ -209,66 +247,22 @@ if __name__ == '__main__':
     stats = []
 
     for epoch in tqdm(range(1, args.epochs + 1)):
-        losses = []
-
-        start = time()
-
-        for theta, theta_prime, x in islice(trainset, args.per_epoch):
-            theta.requires_grad = True
-
-            if args.arbitrary:
-                if model.hyper is None:
-                    mask = mask_sampler(theta.shape[:1])
-                else:
-                    mask = mask_sampler()
-                    model[mask]
-                    mask = None
-
-            z = model.encoder(x)
-
-            if args.arbitrary:
-                ratio = model(theta, z, mask)
-                ratio_prime = model(theta_prime, z, mask)
-            else:
-                ratio = model(theta, z)
-                ratio_prime = model(theta_prime, z)
-
-            l = criterion(ratio, ratio_prime)
-
-            if targetnet is not None:
-                if args.arbitrary:
-                    theta_mix = torch.where(mask, theta, theta_prime)
-                else:
-                    theta_mix = torch.stack([
-                        torch.where(mask, theta, theta_prime)
-                        for mask, _ in model
-                    ], dim=-2)
-
-                target_ratio = targetnet(theta_mix, targetnet.encoder(x))
-
-                rdl = args.coef[0] * rd_loss(ratio, target_ratio)
-                sdl = args.coef[1] * sd_loss(theta, ratio, target_ratio)
-
-                l = torch.stack([l, rdl, sdl])
-
-            losses.append(l.tolist())
-
-            optimizer.zero_grad()
-            l.sum().backward()
-            optimizer.step()
-
-        end = time()
-
-        ## Stats
-        losses = torch.tensor(losses)
+        timing, losses = routine(trainset)
 
         stats.append({
             'epoch': epoch,
-            'time': end - start,
+            'time': timing,
             'lr': optimizer.param_groups[0]['lr'],
             'mean': losses.mean(dim=0).tolist(),
             'std': losses.std(dim=0).tolist(),
         })
+
+        if args.valid is not None:
+            with torch.no_grad():
+                _, v_losses = routine(validset)
+
+            stats[-1]['v_mean'] = v_losses.mean(dim=0).tolist()
+            stats[-1]['v_std'] = v_losses.std(dim=0).tolist()
 
         ## Scheduler
         scheduler.step(losses.mean())

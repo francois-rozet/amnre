@@ -4,6 +4,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from typing import List
+
 
 class SelectionMask(nn.Module):
     r"""Selection mask sampler"""
@@ -35,7 +37,7 @@ class UniformMask(nn.Module):
 class PoissonMask(nn.Module):
     r"""Poisson mask sampler"""
 
-    def __init__(self, size: int, lam: float = 1.):
+    def __init__(self, size: int, lam: float = 2.):
         super().__init__()
 
         self.size = size
@@ -73,3 +75,23 @@ def mask2str(mask: torch.BoolTensor) -> str:
 
 def str2mask(s: str) -> torch.BoolTensor:
     return torch.tensor([c == '1' for c in s])
+
+
+def list2masks(strings: List[str], size: int) -> torch.BoolTensor:
+    if not strings:
+        return torch.zeros((0, size), dtype=bool)
+
+    masks = []
+
+    every = enumerate_masks(size)
+    sizes = every.sum(dim=1)
+
+    for s in strings:
+        if s.startswith('='):
+            s = int(s[1:])
+            masks.append(every[sizes == s])
+        else:
+            mask = str2mask(s)[:size]
+            masks.append(mask.unsqueeze(0))
+
+    return torch.cat(masks)
