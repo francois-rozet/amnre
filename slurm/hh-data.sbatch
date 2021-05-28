@@ -14,10 +14,13 @@
 cd ~/amsi/misc/
 
 if [ -d "mecha" ]; then
+    cp hh_samples.py mecha/5_hh/
     cd mecha/5_hh/
+
     conda activate mecha
 else
     git clone https://github.com/mackelab/IdentifyMechanisticModels_2020 mecha
+
     cp hh_samples.py mecha/5_hh/
     cd mecha/5_hh/
 
@@ -33,6 +36,6 @@ else
 fi
 
 python hh_samples.py -seed 0 -samples 1048576 -o $SCRATCH/samples/hh-train.h5
-python hh_samples.py -seed 1 -samples 131072 -o $SCRATCH/samples/hh-test.h5
-python hh_samples.py -seed 2 -samples 131072 -o $SCRATCH/samples/hh-valid.h5
-python hh_samples.py -seed 3 -events -o $SCRATCH/samples/hh-event.h5
+python hh_samples.py -seed 1 -samples 131072 -moments-from $SCRATCH/samples/hh-train.h5 -o $SCRATCH/samples/hh-test.h5
+python hh_samples.py -seed 2 -samples 131072 -moments-from $SCRATCH/samples/hh-train.h5 -o $SCRATCH/samples/hh-valid.h5
+python hh_samples.py -seed 3 -events -moments-from $SCRATCH/samples/hh-train.h5 -o $SCRATCH/samples/hh-event.h5

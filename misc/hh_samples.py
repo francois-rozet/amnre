@@ -85,6 +85,8 @@ if __name__ == '__main__':
     parser.add_argument('-chunk-size', type=int, default=2 ** 16, help='chunk size')
     parser.add_argument('-batch-size', type=int, default=2 ** 12, help='batch size')
 
+    parser.add_argument('-moments-from', default=None, help='dataset (H5) with moments')
+
     parser.add_argument('-events', default=False, action='store_true', help='events dataset')
 
     parser.add_argument('-o', '--output', default='out.h5', help='output file (H5)')
@@ -97,6 +99,12 @@ if __name__ == '__main__':
     # Simulator
     simulator = HH(seed=args.seed)
 
+    # Moments
+    if args.moments_from is not None:
+        with h5py.File(args.moments_from, 'r') as f:
+            mu = f['mu'][:]
+            sigma = f['sigma'][:]
+
     # Fill dataset
     if os.path.dirname(args.output):
         os.makedirs(os.path.dirname(args.output), exist_ok=True)
@@ -105,6 +113,12 @@ if __name__ == '__main__':
         ## Events
         if args.events:
             theta, x = simulator.events()
+
+            if args.moments_from is not None:
+                x = (x - mu) / sigma
+
+                f.create_dataset('mu', data=mu)
+                f.create_dataset('sigma', data=sigma)
 
             f.create_dataset('theta', data=theta)
             f.create_dataset('x', data=x)
@@ -142,3 +156,23 @@ if __name__ == '__main__':
 
                 theta_set[i:i + args.chunk_size] = np.concatenate(theta_chunk)
                 x_set[i:i + args.chunk_size] = np.concatenate(x_chunk)
+
+        ## Moments
+        if args.moments_from is None:
+            mu, var = 0, 0
+            n = len(x_set)
+
+            for s in x_set.iter_chunks():
+                temp = x_set[s]
+                mu = mu + np.sum(temp, axis=0) / n
+                var = var + np.sum(temp ** 2, axis=0) / n
+
+            sigma = np.sqrt(var - mu ** 2)
+
+        mu, sigma = mu.astype(np.float32), sigma.astype(np.float32)
+
+        for s in x_set.iter_chunks():
+            x_set[s] = (x_set[s] - mu) / sigma
+
+        f.create_dataset('mu', data=mu)
+        f.create_dataset('sigma', data=sigma)

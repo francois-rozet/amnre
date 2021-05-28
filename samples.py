@@ -24,7 +24,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-basis-size', type=int, default=128, help='basis size')
     parser.add_argument('-basis-samples', type=int, default=2 ** 15, help='number of samples for the basis')
-    parser.add_argument('-basis-from', default=None, help='basis file (H5)')
+    parser.add_argument('-basis-from', default=None, help='dataset (H5) with a basis')
 
     parser.add_argument('-events', default=False, action='store_true', help='events dataset')
 

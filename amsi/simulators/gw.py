@@ -326,9 +326,7 @@ class GW(Simulator):
             if not b:
                 continue
 
-            if i == 4:  # luminosity distance
-                m = PowerLaw(self.low[i], self.high[i], n=3)
-            elif i in [7, 8, 11]:  # [tilt_1, tilt_2, theta_jn]
+            if i in [7, 8, 11]:  # [tilt_1, tilt_2, theta_jn]
                 m = SinAngle(self.low[i], self.high[i])
             elif i == 14:  # declination
                 m = CosAngle(self.low[i], self.high[i])
