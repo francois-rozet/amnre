@@ -5,8 +5,8 @@
 #SBATCH --job-name=hh-nre           # Name of the job
 #SBATCH --export=ALL                # Export all environment variables
 #SBATCH --output=hh-nre.log         # Log-file
-#SBATCH --cpus-per-task=2           # Number of CPU cores to allocate
-#SBATCH --mem-per-cpu=8G            # Memory to allocate per allocated CPU core
+#SBATCH --cpus-per-task=1           # Number of CPU cores to allocate
+#SBATCH --mem-per-cpu=16G           # Memory to allocate per allocated CPU core
 #SBATCH --gres=gpu:1                # Number of GPU's
 #SBATCH --time=03:00:00             # Max execution time
 #
