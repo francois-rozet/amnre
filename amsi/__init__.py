@@ -5,7 +5,7 @@ from .datasets import OnlineLTEDataset, OfflineLTEDataset
 from .models import MLP, ResNet, NRE, MNRE, AMNRE
 from .samplers import TractableSampler, RESampler
 
-from .simulators import Simulator
+from .simulators import Simulator, LTERatio
 from .simulators.slcp import SLCP, MLCP
 from .simulators.gw import GW, BasisGW
 from .simulators.hh import HH

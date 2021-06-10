@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from contextlib import nullcontext
 from datetime import datetime
 from itertools import count, islice
 from time import time
@@ -105,7 +106,7 @@ def load_settings(filename: str) -> dict:
     return settings
 
 
-def routine(dataset) -> Tuple[float, torch.Tensor]:
+def routine(dataset, optimize: bool = True) -> Tuple[float, torch.Tensor]:
     losses = []
 
     start = time()
@@ -143,7 +144,7 @@ def routine(dataset) -> Tuple[float, torch.Tensor]:
 
         losses.append(l.tolist())
 
-        if l.requires_grad:
+        if optimize:
             optimizer.zero_grad()
             l.sum().backward()
             optimizer.step()
@@ -237,11 +238,15 @@ if __name__ == '__main__':
         validset = amsi.OfflineLTEDataset(args.valid, batch_size=args.batch_size, device=args.device)
 
     # Target network
-    if args.target is None or type(model) is amsi.NRE:
+    if args.target is None:
         targetnet = None
-    else:
+    elif os.path.isfile(args.target):
         _, _, targetnet = build_instance(load_settings(args.target))
         targetnet.to(args.device)
+    elif simulator.tractable:
+        targetnet = amsi.LTERatio(simulator)
+    else:
+        targetnet = None
 
     # Training
     stats = []
@@ -258,8 +263,8 @@ if __name__ == '__main__':
         })
 
         if args.valid is not None:
-            with torch.no_grad():
-                _, v_losses = routine(validset)
+            with torch.no_grad() if targetnet is None else nullcontext():
+                _, v_losses = routine(validset, False)
 
             stats[-1]['v_mean'] = v_losses.mean(dim=0).tolist()
             stats[-1]['v_std'] = v_losses.std(dim=0).tolist()
