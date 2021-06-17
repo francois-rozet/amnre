@@ -8,8 +8,8 @@
 # Products
 products/
 
-# Misc
-misc/*/
+# Dependencies
+hhpkg/
 
 
 ##########

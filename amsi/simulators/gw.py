@@ -270,7 +270,7 @@ def generate_noise(
     return real + 1j * imag
 
 
-def svd_basis(x: np.ndarray, n: int) -> np.ndarray:
+def svd_basis(x: np.ndarray, n: int = 128) -> np.ndarray:
     r"""Singular Value Decomposition (SVD) basis reduction
 
     References:
@@ -353,6 +353,8 @@ class GW(Simulator):
         return labels
 
     def forward(self, theta: torch.Tensor) -> torch.Tensor:
+        r""" x ~ p(x | theta) """
+
         if self.fiducial:
             theta[..., 3] = 0.
             theta[..., 4] = self.high[4]
@@ -392,6 +394,8 @@ class GW(Simulator):
         return torch.from_numpy(noise)
 
     def events(self) -> Tuple[None, np.ndarray]:
+        r""" x* """
+
         x = crop_dft(event_dft())
         x = whiten_dft(x, self.psd)
 
