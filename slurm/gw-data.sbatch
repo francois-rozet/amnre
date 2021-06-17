@@ -15,6 +15,7 @@ conda activate amsi
 
 cd ~/amsi
 
+python samples.py -simulator GW -seed 0 -events -o $SCRATCH/samples/gw-event.h5
 python samples.py -simulator GW -seed 1 -samples 1048576 -basis-from $SCRATCH/samples/gw-event.h5 -o $SCRATCH/samples/gw-train.h5
 python samples.py -simulator GW -seed 2 -samples 131072 -basis-from $SCRATCH/samples/gw-event.h5 -o $SCRATCH/samples/gw-test.h5
 python samples.py -simulator GW -seed 3 -samples 131072 -basis-from $SCRATCH/samples/gw-event.h5 -o $SCRATCH/samples/gw-valid.h5

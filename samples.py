@@ -41,7 +41,20 @@ if __name__ == '__main__':
     # Simulator
     if args.simulator == 'GW':
         if args.basis_from is None:
-            simulator = amsi.BasisGW(args.basis_size, args.basis_samples)
+            simulator = GW(fiducial=True)
+
+            samples = []
+
+            for _ in range(args.basis_samples // args.batch_size):
+                _, x = simulator.sample((args.batch_size,))
+                x = np.asarray(x).reshape((-1, x.shape[-1]))
+
+                samples.append(x)
+
+            samples = np.concatenate(samples)
+
+            simulator.fiducial = False
+            simulator.basis = amsi.svd_basis(samples, args.basis_size)
         else:
             with h5py.File(args.basis_from, 'r') as f:
                 simulator = amsi.GW(basis=f['basis'][:])

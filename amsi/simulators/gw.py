@@ -124,9 +124,9 @@ def event_dft(
 
 
 def lal_spins(
-    mass1: float,
-    mass2: float,
-    coa_phase: float,
+    m_1: float,
+    m_2: float,
+    phi_c: float,
     a_1: float,
     a_2: float,
     tilt_1: float,
@@ -154,7 +154,7 @@ def lal_spins(
     else:
         iota, spin1x, spin1y, spin1z, spin2x, spin2y, spin2z = transform(
             theta_jn, phi_jl, tilt_1, tilt_2, phi_12, a_1, a_2,
-            mass1 * MSUN_SI, mass2 * MSUN_SI, ref_freq, coa_phase,
+            m_1 * MSUN_SI, m_2 * MSUN_SI, ref_freq, phi_c,
         )
 
     return {
@@ -189,6 +189,9 @@ def generate_waveform(
     theta = theta.astype(float)
 
     # Waveform simulation
+    m_1, q, phi_c, t_c, d_l = theta[:5]
+    m_2 = (m_1 - 10.) * q + 10.
+
     wav_args = {
         ## Static
         'approximant': approximant,
@@ -197,18 +200,19 @@ def generate_waveform(
         'f_ref': ref_freq,
         'f_final': sample_rate / 2,
         ## Variables
-        'mass1': theta[0],
-        'mass2': theta[1],
-        'coa_phase': theta[2],
-        'distance': theta[4],
+        'mass1': m_1,
+        'mass2': m_2,
+        'coa_phase': phi_c,
+        'distance': d_l,
     }
 
-    spins = lal_spins(*theta[:3], *theta[5:12], ref_freq)
+    spins = lal_spins(m_1, m_2, phi_c, *theta[5:12], ref_freq)
     wav_args.update(spins)
 
     hp, hc = get_fd_waveform(**wav_args)
 
     # Projection on detectors
+    psi, alpha, delta = theta[12:]
     ref_time = event_time(event)
 
     signals = []
@@ -216,11 +220,11 @@ def generate_waveform(
     for ifo in detectors:
         detector = ligo_detector(ifo)
 
-        fp, fc = detector.antenna_pattern(theta[13], theta[14], theta[12], ref_time)
+        fp, fc = detector.antenna_pattern(alpha, delta, psi, ref_time)
         hd = fp * hp + fc * hc
 
-        dt = detector.time_delay_from_earth_center(theta[13], theta[14], ref_time)
-        hd = hd.cyclic_time_shift(dt + theta[3])
+        dt = detector.time_delay_from_earth_center(alpha, delta, ref_time)
+        hd = hd.cyclic_time_shift(dt + t_c)
 
         signals.append(hd)
 
@@ -295,7 +299,7 @@ class GW(Simulator):
 
         bounds = torch.tensor([
             [10., 80.],  # mass1 [solar masses]
-            [10., 80.],  # mass2 [solar masses]
+            [0., 1.],  # mass ratio [/]
             [0., 2 * math.pi],  # coalesence phase [rad]
             [-0.1, 0.1],  # coalescence time [s]
             [100., 1000.],  # luminosity distance [megaparsec]
@@ -340,7 +344,7 @@ class GW(Simulator):
     @cached_property
     def labels(self) -> List[str]:
         labels = [
-            'm_1', 'm_2', r'\phi_c', 't_c', 'd_L',
+            'm_1', 'q', r'\phi_c', 't_c', 'd_L',
             'a_1', 'a_2', r'\theta_1', r'\theta_2', r'\phi_{12}', r'\phi_{JL}',
             r'\theta_{JN}', r'\psi', r'\alpha', r'\delta',
         ]
@@ -395,19 +399,6 @@ class GW(Simulator):
             x = self.reduction(x)
 
         return None, x[None]
-
-
-class BasisGW(Simulator):
-    def __new__(self, n: int, m: int):
-        sim = GW(fiducial=True)
-
-        _, x = sim.sample((m,))
-        x = x.view(-1, x.size(-1)).numpy()
-
-        sim.fiducial = False
-        sim.basis = svd_basis(x, n)
-
-        return sim
 
 
 class SuperUniform(Uniform):
