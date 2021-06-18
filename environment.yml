@@ -7,10 +7,11 @@ dependencies:
   - pip:
     - gwpy==2.0.4
     - h5py==3.2.1
-    - matplotlib==3.3.4
+    - matplotlib==3.4.1
     - numpy==1.19.5
     - pandas==1.2.3
     - pycbc==1.18.0
+    - seaborn==0.11.1
     - torch==1.8.1
     - torchist==0.1.6
     - tqdm==4.59.0

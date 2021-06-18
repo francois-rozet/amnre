@@ -11,4 +11,3 @@ from .simulators.gw import GW, svd_basis
 from .simulators.hh import HH
 
 from .masks import *
-from .histograms import set_rcParams, pairwise, corner

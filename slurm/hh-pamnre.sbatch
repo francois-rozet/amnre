@@ -19,6 +19,12 @@ MODEL='{"num_layers": 10, "hidden_size": 256, "activation": "SELU"}'
 
 python train.py -simulator HH -samples $SCRATCH/samples/hh-train.h5 -valid $SCRATCH/samples/hh-valid.h5 -model "$MODEL" -masks poisson -arbitrary -o $SCRATCH/models/hh-pamnre.pth -device cuda
 
-python eval.py $SCRATCH/models/hh-pamnre.json $SCRATCH/samples/hh-event.h5 -masks =1 =2 -compositions 11111111 -o $SCRATCH/results/hh-pamnre-event.csv
-python eval.py $SCRATCH/models/hh-pamnre.json $SCRATCH/samples/hh-test.h5 -masks =1 =2 -indices 0 3 -consistence -compositions 11111111 -o $SCRATCH/results/hh-pamnre.csv
-python eval.py $SCRATCH/models/hh-pamnre.json $SCRATCH/samples/hh-test.h5 -masks =1 -indices 0 16384 -coverage -o $SCRATCH/results/hh-pamnre_cov.csv
+python eval.py $SCRATCH/models/hh-pamnre.json $SCRATCH/samples/hh-event.h5 -masks =1 =2 =5 -o $SCRATCH/results/hh-pamnre-event.csv
+
+python eval.py $SCRATCH/models/hh-pamnre.json $SCRATCH/samples/hh-test.h5 -masks =1 =2 -indices 0 64 -clean -consistency -o $SCRATCH/results/hh-pamnre_cons.csv
+python eval.py $SCRATCH/models/hh-pamnre.json $SCRATCH/samples/hh-test.h5 -masks =1 -indices 0 16384 -clean -coverage -o $SCRATCH/results/hh-pamnre_cov.csv
+
+python plots.py -loss $SCRATCH/models/hh-pamnre.csv
+python plots.py -accuracy $SCRATCH/results/hh-pamnre_cons.csv -metrics probability
+python plots.py -consistency $SCRATCH/results/hh-pamnre_cons_*.csv
+python plots.py -coverage $SCRATCH/results/hh-pamnre_cov.csv

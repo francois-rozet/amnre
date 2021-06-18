@@ -4,8 +4,6 @@ from train import *
 from torchist import reduce_histogramdd, normalize, marginalize
 from torchist.metrics import entropy, kl_divergence, w_distance
 
-amsi.set_rcParams()
-
 
 if __name__ == '__main__':
     import argparse
@@ -24,20 +22,21 @@ if __name__ == '__main__':
     parser.add_argument('-stop', type=int, default=2 ** 14, help='end sample')
     parser.add_argument('-groupby', type=int, default=2 ** 8, help='sample group size')
 
-    parser.add_argument('-bins', type=int, default=50, help='number of bins')
+    parser.add_argument('-bins', type=int, default=100, help='number of bins')
     parser.add_argument('-mcmc-limit', type=int, default=int(1e7), help='MCMC size limit')
     parser.add_argument('-wd-limit', type=int, default=int(1e4), help='Wasserstein distance size limit')
 
+    parser.add_argument('-clean', default=False, action='store_true')
+
     parser.add_argument('-accuracy', default=False, action='store_true')
     parser.add_argument('-coverage', default=False, action='store_true')
-    parser.add_argument('-consistence', default=False, action='store_true')
-    parser.add_argument('-plots', default=False, action='store_true')
-
-    parser.add_argument('-compositions', nargs='+', default=[], help='composition masks')
+    parser.add_argument('-consistency', default=False, action='store_true')
 
     parser.add_argument('-o', '--output', default=None, help='output file (CSV)')
 
     args = parser.parse_args()
+
+    torch.set_grad_enabled(False)
 
     # Output
     if args.output is None:
@@ -52,6 +51,7 @@ if __name__ == '__main__':
 
     # Simulator & Model
     simulator, dataset, model = build_instance(settings)
+    model.eval()
 
     low, high = simulator.low, simulator.high
     device = low.device
@@ -96,168 +96,135 @@ if __name__ == '__main__':
                     device='cpu',
                 ).coalesce()
 
-                torch.save(truth, pthfile)
+                truth, _ = normalize(truth)
+
+                mask = torch.tensor([True] * theta_size)
+                torch.save((mask, truth), pthfile)
             else:
-                truth = torch.load(pthfile)._coalesced_(True)
-
-            truth, _ = normalize(truth)
-
-            ## Plot
-            pdffile = pthfile.replace('.pth', '.pdf')
-
-            if args.plots and not os.path.exists(pdffile):
-                amsi.corner(
-                    amsi.pairwise(truth), low.cpu(), high.cpu(),
-                    labels=simulator.labels, truth=theta_star,
-                    filename=pthfile.replace('.pth', '.pdf'),
-                )
+                _, truth = torch.load(pthfile)
+                truth._coalesced_(True)
         else:
             truth = None
 
         ## MNRE
-        measures = []
+        metrics = []
         hists = {}
         divergences = {}
 
-        if args.compositions:
-            tiles = [
-                [None] * (i + 1)
-                for i in range(theta_size)
-            ]
+        z_star = model.encoder(x_star)
 
-        with torch.no_grad():
-            model.eval()
+        for mask in masks:
+            textmask = amsi.mask2str(mask)
 
-            z_star = model.encoder(x_star)
+            if type(model) is amsi.NRE:
+                nre = model
+            else:
+                nre = model[mask]
+                if nre is None:
+                    continue
 
-            for mask in masks:
-                textmask = amsi.mask2str(mask)
+            ### Hist
+            numel = args.bins ** torch.count_nonzero(mask).item()
 
-                if type(model) is amsi.NRE:
-                    nre = model
+            sampler = amsi.RESampler(
+                nre,
+                simulator.masked_prior(mask),
+                z_star,
+                batch_size=args.batch_size,
+                sigma=args.sigma * (high[mask] - low[mask]),
+            )
+
+            if numel > args.mcmc_limit:
+                samples = sampler(args.start, args.stop, groupby=args.groupby)
+                hist = reduce_histogramdd(
+                    samples, args.bins,
+                    low, high,
+                    bounded=True,
+                    sparse=True,
+                    device='cpu',
+                ).coalesce()
+            else:
+                hist = sampler.histogram(args.bins, low[mask], high[mask])
+                hist = torch.nan_to_num(hist)
+
+            ### Metrics
+            hist, total = normalize(hist)
+
+            metrics.append({
+                'index': idx,
+                'mask': textmask,
+                'total_probability': total.item(),
+                'entropy': entropy(hist).item(),
+            })
+
+            #### Accuracy w.r.t. ground truth
+            if truth is not None:
+                dims = torch.arange(len(mask))[~mask]
+                target = marginalize(truth, dim=dims.tolist())
+
+                if not hist.is_sparse:
+                    target = target.to_dense()
+
+                target = target.to(hist)
+
+                metrics[-1]['entropy_truth'] = entropy(target).item()
+                metrics[-1]['kl_truth'] = kl_divergence(target, hist).item()
+
+                if numel <= args.wd_limit:
+                    metrics[-1]['wd_truth'] = w_distance(target, hist).item()
                 else:
-                    nre = model[mask]
-                    if nre is None:
+                    metrics[-1]['wd_truth'] = None
+
+                del target
+            else:
+                metrics[-1]['entropy_truth'] = None
+                metrics[-1]['kl_truth'] = None
+                metrics[-1]['wd_truth'] = None
+
+            #### Coverage
+            if args.coverage and theta_star is not None:
+                p = hist[tuple(index_star[mask])]
+
+                if hist.is_sparse:
+                    pdf = hist.values()
+                else:
+                    pdf = hist.view(-1)
+
+                metrics[-1]['quantile'] = pdf[pdf >= p].sum().item()
+            else:
+                metrics[-1]['quantile'] = None
+
+            #### Consistency
+            hist = hist.cpu()
+
+            if args.consistency and not hist.is_sparse:
+                divergences[textmask] = {textmask: None}
+
+                for key, (m, h) in hists.items():
+                    common = torch.logical_and(mask, m)
+
+                    if torch.all(~common):
+                        divergences[textmask][key] = None
+                        divergences[key][textmask] = None
                         continue
 
-                ### Hist
-                numel = args.bins ** torch.count_nonzero(mask).item()
+                    dims = mask.cumsum(0)[common] - 1
+                    p = marginalize(hist, dim=dims.tolist(), keep=True)
 
-                sampler = amsi.RESampler(
-                    nre,
-                    simulator.masked_prior(mask),
-                    z_star,
-                    batch_size=args.batch_size,
-                    sigma=args.sigma * (high[mask] - low[mask]),
-                )
+                    dims = m.cumsum(0)[common] - 1
+                    q = marginalize(h, dim=dims.tolist(), keep=True)
 
-                if numel > args.mcmc_limit:
-                    samples = sampler(args.start, args.stop, groupby=args.groupby)
-                    hist = reduce_histogramdd(
-                        samples, args.bins,
-                        low, high,
-                        bounded=True,
-                        sparse=True,
-                        device='cpu',
-                    ).coalesce()
-                else:
-                    hist = sampler.histogram(args.bins, low[mask], high[mask])
-                    hist = torch.nan_to_num(hist)
+                    divergences[textmask][key] = w_distance(p, q).item()
+                    divergences[key][textmask] = divergences[textmask][key]
 
-                ### Quantitative
-                hist, total = normalize(hist)
+                hists[textmask] = mask, hist
 
-                measures.append({
-                    'index': idx,
-                    'mask': textmask,
-                    'total_probability': total.item(),
-                    'entropy': entropy(hist).item(),
-                })
+            ### Export histogram
+            if not args.clean:
+                torch.save((mask, hist), args.output.replace('.csv', f'_{idx}_{textmask}.pth'))
 
-                #### Accuracy w.r.t. ground truth
-                if truth is not None:
-                    dims = torch.arange(len(mask))[~mask]
-                    target = marginalize(truth, dim=dims.tolist())
-
-                    if not hist.is_sparse:
-                        target = target.to_dense()
-
-                    target = target.to(hist)
-
-                    measures[-1]['entropy_truth'] = entropy(target).item()
-                    measures[-1]['kl_truth'] = kl_divergence(target, hist).item()
-
-                    if numel <= args.wd_limit:
-                        measures[-1]['wd_truth'] = w_distance(target, hist).item()
-                    else:
-                        measures[-1]['wd_truth'] = None
-
-                    del target
-                else:
-                    measures[-1]['entropy_truth'] = None
-                    measures[-1]['kl_truth'] = None
-                    measures[-1]['wd_truth'] = None
-
-                #### Coverage
-                if args.coverage and theta_star is not None:
-                    p = hist[tuple(index_star[mask])]
-
-                    if hist.is_sparse:
-                        pdf = hist.values()
-                    else:
-                        pdf = hist.view(-1)
-
-                    measures[-1]['quantile'] = pdf[pdf >= p].sum().item()
-                else:
-                    measures[-1]['quantile'] = None
-
-                #### Consistence
-                hist = hist.cpu()
-
-                if args.consistence and not hist.is_sparse:
-                    divergences[textmask] = {textmask: 0.}
-
-                    for key, (m, h) in hists.items():
-                        common = torch.logical_and(mask, m)
-
-                        if torch.all(~common):
-                            divergences[textmask][key] = 0.
-                            divergences[key][textmask] = 0.
-                            continue
-
-                        dims = mask.cumsum(0)[common] - 1
-                        p = marginalize(hist, dim=dims.tolist(), keep=True)
-
-                        dims = m.cumsum(0)[common] - 1
-                        q = marginalize(h, dim=dims.tolist(), keep=True)
-
-                        divergences[textmask][key] = kl_divergence(p, q).item()
-                        divergences[key][textmask] = kl_divergence(q, p).item()
-
-                    hists[textmask] = mask, hist
-
-                ### Qualitative
-                if args.plots:
-                    labels = [l for (l, m) in zip(simulator.labels, mask) if m]
-
-                    fig = amsi.corner(
-                        amsi.pairwise(hist), low[mask].cpu(), high[mask].cpu(),
-                        labels=labels, truth=None if theta_star is None else theta_star[mask],
-                        filename=args.output.replace('.csv', f'_{idx}_{textmask}.pdf'),
-                    )
-
-                if args.compositions and hist.dim() <= 2:
-                    indices = torch.nonzero(mask).squeeze()
-
-                    if indices.numel() == 1:
-                        i = j = indices.tolist()
-                    else:
-                        i, j = indices.tolist()
-
-                    tiles[j][i] = hist
-
-        ## Append measures
-        df = pd.DataFrame(measures)
+        ## Append metrics
+        df = pd.DataFrame(metrics)
         df.to_csv(
             args.output,
             index=False,
@@ -265,23 +232,7 @@ if __name__ == '__main__':
             header=not os.path.exists(args.output),
         )
 
-        ## Export consistence
-        if args.consistence:
+        ## Export consistency
+        if args.consistency:
             df = pd.DataFrame(divergences)
             df.to_csv(args.output.replace('.csv', f'_{idx}.csv'))
-
-        ## Compositions
-        for textmask in args.compositions:
-            mask = amsi.str2mask(textmask)
-            pairs = [
-                [tiles[i][j] for j in range(i + 1) if mask[j]]
-                for i in range(len(tiles)) if mask[i]
-            ]
-
-            labels = [l for (l, m) in zip(simulator.labels, mask) if m]
-
-            fig = amsi.corner(
-                pairs, low[mask].cpu(), high[mask].cpu(),
-                labels=labels, truth=None if theta_star is None else theta_star[mask],
-                filename=args.output.replace('.csv', f'_{idx}_{textmask}_c.pdf'),
-            )

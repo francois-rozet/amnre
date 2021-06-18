@@ -22,6 +22,12 @@ ENCODER='{"name": "MLP", "output_size": 256, "num_layers": 10, "hidden_size": 25
 
 python train.py -simulator GW -samples $SCRATCH/samples/gw-train.h5 -valid $SCRATCH/samples/gw-valid.h5 -model "$MODEL" -encoder "$ENCODER" -masks =1 =2 -o $SCRATCH/models/gw-mnre.pth -device cuda
 
-python eval.py $SCRATCH/models/gw-mnre.json $SCRATCH/samples/gw-event.h5 -masks =1 =2 -compositions 111111111111111 -o $SCRATCH/results/gw-mnre-event.csv
-python eval.py $SCRATCH/models/gw-mnre.json $SCRATCH/samples/gw-test.h5 -masks =1 =2 -indices 0 3 -consistence -compositions 111111111111111 -o $SCRATCH/results/gw-mnre.csv
-python eval.py $SCRATCH/models/gw-mnre.json $SCRATCH/samples/gw-test.h5 -masks =1 -indices 0 16384 -coverage -o $SCRATCH/results/gw-mnre_cov.csv
+python eval.py $SCRATCH/models/gw-mnre.json $SCRATCH/samples/gw-event.h5 -masks =1 =2 -o $SCRATCH/results/gw-mnre-event.csv
+
+python eval.py $SCRATCH/models/gw-mnre.json $SCRATCH/samples/gw-test.h5 -masks =1 =2 -indices 0 64 -clean -consistency -o $SCRATCH/results/gw-mnre_cons.csv
+python eval.py $SCRATCH/models/gw-mnre.json $SCRATCH/samples/gw-test.h5 -masks =1 -indices 0 16384 -clean -coverage -o $SCRATCH/results/gw-mnre_cov.csv
+
+python plots.py -loss $SCRATCH/models/gw-mnre.csv
+python plots.py -accuracy $SCRATCH/results/gw-mnre_cons.csv -metrics probability
+python plots.py -consistency $SCRATCH/results/gw-mnre_cons_*.csv
+python plots.py -coverage $SCRATCH/results/gw-mnre_cov.csv
