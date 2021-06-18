@@ -1,7 +1,11 @@
 r"""Arbitrary Marginal Simulation-based Inference"""
 
-from .criteria import WeightedLoss, RELoss, RDLoss, SDLoss
-from .datasets import OnlineLTEDataset, OfflineLTEDataset
+from .criteria import (
+    MSELoss,
+    NLLWithLogitsLoss, PeripheralWithLogitsLoss, QSWithLogitsLoss,
+    RDLoss, SDLoss
+)
+from .datasets import OnlineDataset, OfflineDataset, LTEDataset
 from .models import MLP, ResNet, NRE, MNRE, AMNRE
 from .samplers import TractableSampler, RESampler
 

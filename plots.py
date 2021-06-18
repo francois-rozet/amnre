@@ -13,6 +13,7 @@ import torch
 import torchist
 
 from itertools import cycle
+from sklearn.metrics import roc_curve, auc
 from typing import Dict, List, Tuple, Union
 
 import amsi
@@ -196,6 +197,27 @@ def consistency_plot(
         plt.close()
 
     return fig
+
+
+def roc_plot(filename: str) -> mpl.figure.Figure:  # Receiver Operating Characteristic
+    with h5py.File(filename) as f:
+        for mask, data in f.items():
+            fp, tp, _ = roc_curve(data[:, 0], data[:, 1], sample_weight=data[:, 2])
+            area = round(auc(fp, tp), 3)
+
+            plt.figure()
+
+            plt.step(fp, tp, label=f'ROC (AUC = {area})')
+            plt.plot([0, 1], [0, 1], linestyle='--')
+
+            plt.axis('square')
+
+            plt.xlabel('False Positive rate')
+            plt.ylabel('True Positive rate')
+            plt.legend()
+
+            plt.savefig(filename.replace('.h5', f'_{mask}.pdf'))
+            plt.close()
 
 
 ##########
@@ -393,6 +415,7 @@ if __name__ == '__main__':
     parser.add_argument('-accuracy', nargs='+', default=[], help='accuracy file (CSV)')
     parser.add_argument('-coverage', nargs='+', default=[], help='coverage file (CSV)')
     parser.add_argument('-consistency', nargs='+', default=[], help='consistency files (CSV)')
+    parser.add_argument('-roc', nargs='+', default=[], help='prediction file (H5)')
     parser.add_argument('-corner', nargs='+', default=[], help='corner settings file (JSON)')
 
     parser.add_argument('-metrics', nargs='+',
@@ -443,6 +466,10 @@ if __name__ == '__main__':
     # Consistency plots
     if len(args.consistency) > 1:
         consistency_plot(args.consistency)
+
+    # ROC plots
+    for filename in args.roc:
+        roc_plot(filename)
 
     # Corner plots
     for filename in args.corner:

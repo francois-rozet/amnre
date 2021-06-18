@@ -32,6 +32,8 @@ if __name__ == '__main__':
     parser.add_argument('-coverage', default=False, action='store_true')
     parser.add_argument('-consistency', default=False, action='store_true')
 
+    parser.add_argument('-classify', default=False, action='store_true')
+
     parser.add_argument('-o', '--output', default=None, help='output file (CSV)')
 
     args = parser.parse_args()
@@ -176,10 +178,6 @@ if __name__ == '__main__':
                     metrics[-1]['wd_truth'] = None
 
                 del target
-            else:
-                metrics[-1]['entropy_truth'] = None
-                metrics[-1]['kl_truth'] = None
-                metrics[-1]['wd_truth'] = None
 
             #### Coverage
             if args.coverage and theta_star is not None:
@@ -191,8 +189,6 @@ if __name__ == '__main__':
                     pdf = hist.view(-1)
 
                 metrics[-1]['quantile'] = pdf[pdf >= p].sum().item()
-            else:
-                metrics[-1]['quantile'] = None
 
             #### Consistency
             hist = hist.cpu()
@@ -236,3 +232,54 @@ if __name__ == '__main__':
         if args.consistency:
             df = pd.DataFrame(divergences)
             df.to_csv(args.output.replace('.csv', f'_{idx}.csv'))
+
+    # Classification
+    if args.classify:
+        if settings['adversary'] is None:
+            adversary = Dummy()
+        else:
+            _, _, adversary = build_instance(load_settings(settings['adversary']))
+
+        dataset = amsi.LTEDataset(dataset)
+        length = len(dataset)
+
+        with h5py.File(args.output.replace('.csv', '.h5'), 'w') as f:
+            for mask in masks:
+                textmask = amsi.mask2str(mask)
+
+                f.create_dataset(textmask, (length * 2, 3))
+
+            i = 0
+            for theta, theta_prime, x in dataset:
+                j, k = i + len(x), i + 2 * len(x)
+
+                z = model.encoder(x)
+                adv_z = adversary.encoder(x)
+
+                for mask in masks:
+                    textmask = amsi.mask2str(mask)
+
+                    if type(model) is amsi.NRE:
+                        nre = model
+                        adv_nre = adversary
+                    else:
+                        nre = model[mask]
+                        adv_nre = adversary[mask]
+
+                        if nre is None:
+                            continue
+
+                    pred = nre(theta, z).sigmoid().cpu().numpy()
+                    f[textmask][i:j] = np.stack([np.ones_like(pred), pred, np.ones_like(pred)], axis=-1)
+
+                    pred = nre(theta_prime, z).sigmoid().cpu().numpy()
+
+                    weight = adv_nre(theta_prime, adv_z)
+                    if weight is None:
+                        weight = np.ones_like(pred)
+                    else:
+                        weight = weight.exp().cpu().numpy()
+
+                    f[textmask][j:k] = np.stack([np.zeros_like(pred), pred, weight], axis=-1)
+
+                i = k

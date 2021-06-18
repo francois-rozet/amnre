@@ -146,7 +146,7 @@ def reparametrize(model: nn.Module, weights: torch.Tensor, i: int = 0) -> int:
 
 
 class HyperNet(nn.Module):
-    r"""Hyper Network"""
+    r"""Hyper Network (HyperNet)"""
 
     def __init__(self, network: nn.Module, input_size: int, **kwargs):
         super().__init__()
@@ -253,10 +253,11 @@ class MNRE(nn.Module):
         x: torch.Tensor,
     ) -> torch.Tensor:
         ratios = []
+
         for mask, nre in iter(self):
             ratios.append(nre(theta[..., mask], x))
 
-        return torch.stack(ratios)
+        return torch.stack(ratios, dim=-1)
 
 
 class AMNRE(nn.Module):
@@ -317,7 +318,7 @@ class AMNRE(nn.Module):
             self.hyper(self.net, mask.float())
 
         if mask.dim() == 1 and theta.size(-1) < mask.numel():
-            blank = theta.new_empty(theta.shape[:-1] + mask.shape)
+            blank = theta.new_zeros(theta.shape[:-1] + mask.shape)
             blank[..., mask] = theta
             theta = blank
 

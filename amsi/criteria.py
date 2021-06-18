@@ -4,96 +4,143 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from typing import List
+from typing import Tuple
 
 
-class WeightedLoss(nn.Module):
-    r"""Weighted Loss"""
+def reduce(x: torch.Tensor, reduction: str) -> torch.Tensor:
+    if reduction == 'sum':
+        x = x.sum()
+    elif reduction == 'mean':
+        x = x.mean()
+    elif reduction == 'batchmean':
+        x = x.sum() / x.size(0)
 
-    def __new__(cls, loss: nn.Module, weight: float = None):
-        if weight is None:
-            return loss
-        else:
-            return super().__new__(cls)
+    return x
 
-    def __init__(self, loss: nn.Module, weight: float):
+
+class MSELoss(nn.Module):
+    r"""Mean Squared Error (MSE) Loss"""
+
+    def __init__(self, reduction: str = 'batchmean'):
         super().__init__()
 
-        self.loss = loss
-        self.weight = weight
-
-    def forward(self, *args, **kwargs) -> torch.Tensor:
-        return self.weight * self.loss(*args, **kwargs)
-
-
-class RMSELoss(nn.Module):
-    r"""Root Mean Squared Error Loss (RMSELoss)"""
-
-    def __init__(self, epsilon: float = 1e-8):
-        super().__init__()
-
-        self.epsilon = epsilon
+        self.reduction = reduction
 
     def forward(
         self,
         input: torch.Tensor,
         target: torch.Tensor,
     ) -> torch.Tensor:
-        return torch.sqrt(F.mse_loss(input, target) + self.epsilon)
+        e = F.mse_loss(input, target, reduction='none')
+
+        return reduce(e, self.reduction)
 
 
-class RELoss(nn.Module):
-    r"""Ratio Estimator Loss (RELoss)"""
+class NLLWithLogitsLoss(nn.Module):
+    r"""Negative Log-Likelihood (NLL) With Logits Loss
 
-    def __init__(self):
+    - log(x)
+    """
+
+    def __init__(self, reduction: str = 'batchmean'):
         super().__init__()
 
-        self.bce = nn.BCEWithLogitsLoss(reduction='sum')
+        self.reduction = reduction
 
-    def forward(
-        self,
-        ratio: torch.Tensor,  # r(theta | x)
-        ratio_prime: torch.Tensor,  # r(theta' | x)
-    ) -> torch.Tensor:
-        l1 = self.bce(ratio, torch.ones_like(ratio))
-        l0 = self.bce(ratio_prime, torch.zeros_like(ratio))
+    def forward(self, input: torch.Tensor, weight: torch.Tensor = None) -> torch.Tensor:
+        ll = F.logsigmoid(input)  # log-likelihood
 
-        return (l1 + l0) / ratio.size(-1)
+        if weight is not None:
+            ll = weight * ll
+
+        return -reduce(ll, self.reduction)
 
 
-class RDLoss(nn.Module):
-    r"""Ratio Distillation Loss (RDLoss)
+class PeripheralWithLogitsLoss(nn.Module):
+    r"""Peripheral With Logits Loss
 
-    1. (r(theta_a | x) - r(theta | x))^2
-    2. (1 / r(theta_a | x) - 1 / r(theta | x))^2
+    - (1 - x^gamma) log(x)
 
     Note:
-        1. theta_b has to be sampled from p(theta_b)
-        2. theta_b has to be sampled from p(theta_b | theta_a, x)
+        This is an adaptation of the Focal Loss.
+
+    References:
+        [1] Focal Loss for Dense Object Detection
+        (Lin et al., 2017)
+        https://arxiv.org/abs/1708.02002
+
+        [2] Calibrating Deep Neural Networks using Focal Loss
+        (Mukhoti et al., 2020)
+        https://arxiv.org/abs/2002.09437
+    """
+
+    def __init__(self, gamma: float = 2., reduction: str = 'batchmean'):
+        super().__init__()
+
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, input: torch.Tensor, weight: torch.Tensor = None) -> torch.Tensor:
+        ll = F.logsigmoid(input)  # log-likelihood
+        pp = -(1 - (ll * self.gamma).exp()) * ll  # peripheral
+
+        if weight is not None:
+            pp = weight * pp
+
+        return reduce(pp, self.reduction)
+
+
+class QSWithLogitsLoss(nn.Module):
+    r"""Quadratic Score (QS) With Logits Loss
+
+    (1 - x)^2
+
+    References:
+        https://en.wikipedia.org/wiki/Scoring_rule
+    """
+
+    def __init__(self, reduction: str = 'batchmean'):
+        super().__init__()
+
+        self.reduction = reduction
+
+    def forward(self, input: torch.Tensor, weight: torch.Tensor = None) -> torch.Tensor:
+        qs = F.sigmoid(-input) ** 2
+
+        if weight is not None:
+            qs = weight * qs
+
+        return reduce(qs, self.reduction)
+
+
+class RDLoss(MSELoss):
+    r"""Ratio Distillation (RD) Loss
+
+    (r(theta_a | x) - r(theta | x))^2
     """
 
     def forward(
         self,
-        ratio: torch.Tensor,  # (+-) log r(theta_a | x)
-        target: torch.Tensor,  # (+-) log r(theta | x)
+        ratio: torch.Tensor,  # log r(theta_a | x)
+        target: torch.Tensor,  # log r(theta | x)
     ) -> torch.Tensor:
-        ratio, target = ratio.exp(), target.exp()
+        ratio, target = ratio.exp(), target.detach().exp()
 
-        return F.mse_loss(ratio, target.detach().expand(ratio.shape))
+        while target.dim() < ratio.dim():
+            target = target[..., None]
+
+        return super().forward(ratio, target.expand(ratio.shape))
 
 
-class SDLoss(nn.Module):
-    r"""Score Distillation Loss (SDLoss)
+class SDLoss(MSELoss):
+    r"""Score Distillation (SD) Loss
 
     (grad log r(theta_a | x) - grad log r(theta | x))^2
-
-    Note:
-        theta_b has to be sampled from p(theta_b | theta_a, x)
     """
 
     def forward(
         self,
-        theta: torch.Tensor,  # theta_a
+        theta: torch.Tensor,  # theta
         ratio: torch.Tensor,  # log r(theta_a | x)
         target: torch.Tensor,  # log r(theta | x)
     ) -> torch.Tensor:
@@ -106,6 +153,9 @@ class SDLoss(nn.Module):
         target = torch.autograd.grad(  # grad log r(theta | x)
             target, theta,
             torch.ones_like(target),
-        )[0]
+        )[0].detach()
 
-        return F.mse_loss(score, target.detach().expand(score.shape))
+        while target.dim() < score.dim():
+            target = target[..., None]
+
+        return super().forward(score, target.expand(score.shape))
