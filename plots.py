@@ -11,6 +11,7 @@ import pandas as pd
 import seaborn as sns
 import torch
 import torchist
+import tqdm
 
 from itertools import cycle
 from sklearn.metrics import roc_curve, auc
@@ -35,7 +36,9 @@ plt.rcParams.update({
     'savefig.bbox': 'tight',
     'savefig.transparent': True,
     'xtick.labelsize': 'small',
+    'xtick.major.width': 1.,
     'ytick.labelsize': 'small',
+    'ytick.major.width': 1.,
 })
 
 if mpl.checkdep_usetex(True):
@@ -121,10 +124,10 @@ def coverage_plot(filename: str, bins: int = 20) -> mpl.figure.Figure:
 
     fig = plt.figure()
 
+    plt.axhline(y=1 / bins, color='k', ls='--')
+
     plt.plot(ticks, mu)
     plt.fill_between(ticks, mu - sigma, mu + sigma, alpha=0.25)
-
-    plt.axhline(y=1 / bins, color='tab:orange', ls='--')
 
     plt.xlabel('Percentile')
     plt.ylabel('Frequency')
@@ -207,8 +210,8 @@ def roc_plot(filename: str) -> mpl.figure.Figure:  # Receiver Operating Characte
 
             plt.figure()
 
+            plt.plot([0, 1], [0, 1], color='k', linestyle='--')
             plt.step(fp, tp, label=f'ROC (AUC = {area})')
-            plt.plot([0, 1], [0, 1], linestyle='--')
 
             plt.axis('square')
 
@@ -230,21 +233,6 @@ SIMULATORS = {
     'GW': amsi.GW,
     'HH': amsi.HH,
 }
-
-
-def pairwise_marginalize(hist: torch.Tensor, dims: List[int]) -> Dict[Tuple[int, int], Array]:
-    pairs = {}
-
-    for i, a in enumerate(dims):
-        for j, b in enumerate(dims[:i + 1]):
-            h = torchist.marginalize(hist, dim=[i, j], keep=True)
-
-            if h.is_sparse:
-                h = h.to_dense()
-
-            pairs[(a, b)] = h.t().cpu().numpy()
-
-    return pairs
 
 
 def search_quantiles(x: Array, quantiles: Vector) -> Vector:
@@ -285,30 +273,31 @@ class NonLinearColormap(mpl.colors.Colormap):
 
 
 def corner(
-    data: Dict[str, Dict[Tuple[int, int], Array]],
+    data: List[Dict[Tuple[int, int], Array]],
     dims: List[int],
     low: Vector,
     high: Vector,
     quantiles: Vector = [.3829, .6827, .9545, .9973],
     labels: List[str] = None,
-    truth: Vector = None,
-    legend: bool = False,
+    star: Vector = None,
+    legend: List[str] = None,
 ) -> mpl.figure.Figure:
     D = len(dims)
 
     fontsize = D * plt.rcParams['font.size'] / 3
-    squaresize = plt.rcParams['figure.figsize'][1]
+    squaresize = plt.rcParams['figure.figsize'][1] * 0.8
 
     fig, axs = plt.subplots(
         D, D,
         squeeze=False,
         figsize=(D * squaresize,) * 2,
+        sharex='col',
     )
 
     quantiles = np.sort(np.asarray(quantiles))
     quantiles = np.append(quantiles[::-1], 0.)
 
-    colors = {key: c for (key, c) in zip(data, mpl.colors.TABLEAU_COLORS)}
+    colors = [c for _, c in zip(data, mpl.colors.TABLEAU_COLORS)]
 
     for i in range(D):
         for j in range(D):
@@ -322,7 +311,7 @@ def corner(
             # Data
             a, b = dims[i], dims[j]
 
-            for key, hists in data.items():
+            for color, hists in zip(colors, data):
                 if (a, b) in hists:
                     hist = hists[(a, b)]
                 else:
@@ -330,10 +319,6 @@ def corner(
 
                 x = np.linspace(low[b], high[b], hist.shape[-1])
                 y = np.linspace(low[a], high[a], hist.shape[0])
-
-                ## Color
-                color = colors[key]
-                cmap = AlphaLinearColormap(color, 0.5)
 
                 ## Draw
                 if i == j:
@@ -351,12 +336,9 @@ def corner(
                     cf = ax.contourf(
                         x, y, hist,
                         levels=levels,
-                        cmap=NonLinearColormap(cmap, levels),
+                        cmap=NonLinearColormap(AlphaLinearColormap(color, 0.5), levels),
                     )
                     ax.contour(cf, colors=color)
-
-                    if i > 0:
-                        ax.sharex(axs[i - 1, j])
 
                     if j > 0:
                         ax.sharey(axs[i, j - 1])
@@ -378,30 +360,42 @@ def corner(
                 if j == 0 and i != j:
                     ax.set_ylabel(labels[a], fontsize=fontsize)
 
-            # Truth
-            if truth is not None:
+            # theta*
+            if star is not None:
                 if i != j:
                     ax.plot(
-                        truth[b], truth[a],
+                        star[b], star[a],
                         color='k',
                         marker='*',
-                        markersize=9.,
+                        markersize=8.,
                     )
                 else:
                     ax.axvline(
-                        truth[a],
+                        star[a],
                         color='k',
                         ls='--',
                     )
 
-    if legend:
-        labels = [key for key in colors if not key.startswith('_')]
-        handles = [
-            mpl.lines.Line2D([0], [0], color=colors[key], linewidth=D / 2)
-            for key in labels
-        ]
+    # Legend
+    cmap = AlphaLinearColormap('black', 0.5)
 
-        fig.legend(handles, labels, loc='upper right', fontsize=fontsize)
+    if star is not None:
+        handles = [mpl.lines.Line2D([], [], color='k', marker='*', markersize=fontsize * 0.8, linestyle='None', label=r'$\theta^*$')]
+    else:
+        handles = []
+
+    handles += [
+        mpl.patches.Patch(color=cmap(1 - (p + q) / 2), label=r'{:.1f}\,\%'.format(p * 100))
+        for p, q in zip(quantiles[:-1], quantiles[1:])
+    ]
+
+    handles += [
+        mpl.lines.Line2D([], [], color=color, linewidth=D / 2, label=label)
+        for color, label in zip(colors, legend)
+        if label is not None
+    ]
+
+    fig.legend(handles=handles, loc='upper right', fontsize=fontsize, frameon=False)
 
     return fig
 
@@ -472,7 +466,7 @@ if __name__ == '__main__':
         roc_plot(filename)
 
     # Corner plots
-    for filename in args.corner:
+    for filename in tqdm.tqdm(args.corner):
         with open(filename) as g:
             settings = json.load(g)
 
@@ -493,23 +487,29 @@ if __name__ == '__main__':
             theta_star = None
 
         ## Histograms
-        data = {}
+        data = []
 
-        for key, files in settings['items'].items():
-            files = [g for f in files for g in glob.glob(f)]
+        for item in settings['items']:
+            data.append({})
 
-            if len(files) == 1:
-                mask, hist = torch.load(files[0])
+            files = [g for f in item['files'] for g in glob.glob(f)]
+
+            for f in files:
+                mask, hist = torch.load(f)
                 dims = mask.nonzero().squeeze(-1).tolist()
 
-                data[key] = pairwise_marginalize(hist, dims)
-            else:
-                data[key] = {}
+                pairs = {}
 
-                for f in files:
-                    mask, hist = torch.load(f)
-                    dims = mask.nonzero().squeeze(-1).tolist()
+                if item.get('marginalize', False):
+                    for i, a in enumerate(dims):
+                        for j, b in enumerate(dims[:i + 1]):
+                            h = torchist.marginalize(hist, dim=[i, j], keep=True)
 
+                            if h.is_sparse:
+                                h = h.to_dense()
+
+                            pairs[(a, b)] = h
+                else:
                     if len(dims) == 1:
                         i = j = dims[0]
                     elif len(dims) == 2:
@@ -517,7 +517,20 @@ if __name__ == '__main__':
                     else:
                         continue
 
-                    data[key][(i, j)] = hist.t().numpy()
+                    pairs[(i, j)] = hist
+
+                for (i, j), h in pairs.items():
+                    h = h.t().cpu().numpy()
+                    data[-1][(i, j)] = h + data[-1].get((i, j), 0)
+
+            for (i, j), h in data[-1].items():
+                h /= h.sum()
+
+        ## Legend
+        legend = [item.get('legend', None) for item in settings['items']]
+
+        if all(l is None for l in legend):
+            legend = None
 
         ## Masks
         for textmask in settings['masks']:
@@ -525,8 +538,9 @@ if __name__ == '__main__':
 
             corner(
                 data, dims, low, high,
-                labels=labels, truth=theta_star,
-                legend=settings.get('legend', False),
+                quantiles=settings['quantiles'],
+                labels=labels, star=theta_star,
+                legend=legend,
             )
 
             plt.savefig(filename.replace('.json', f'_{textmask}.pdf'))

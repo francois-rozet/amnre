@@ -74,7 +74,7 @@ class PeripheralWithLogitsLoss(nn.Module):
         https://arxiv.org/abs/2002.09437
     """
 
-    def __init__(self, gamma: float = 2., reduction: str = 'batchmean'):
+    def __init__(self, gamma: float = 4., reduction: str = 'batchmean'):
         super().__init__()
 
         self.gamma = gamma

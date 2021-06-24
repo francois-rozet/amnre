@@ -1,0 +1,27 @@
+{
+    "simulator": "SLCP",
+    "items": [
+        {
+            "legend": "marginals",
+            "files": [
+                "results/slcp-mnre_0_00100.pth",
+                "results/slcp-mnre_0_00010.pth",
+                "results/slcp-mnre_0_00001.pth"
+            ]
+        },
+        {
+            "marginalize": true,
+            "files": ["results/slcp-mnre_0_00110.pth"]
+        },
+        {
+            "marginalize": true,
+            "files": ["results/slcp-mnre_0_00101.pth"]
+        },
+        {
+            "marginalize": true,
+            "files": ["results/slcp-mnre_0_00011.pth"]
+        }
+    ],
+    "masks": ["00111"],
+    "quantiles": [0.3829, 0.6827, 0.9545, 0.9973]
+}

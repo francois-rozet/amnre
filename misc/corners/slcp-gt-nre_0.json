@@ -1,0 +1,18 @@
+{
+    "simulator": "SLCP",
+    "star": ["samples/slcp-test.h5", 0],
+    "items": [
+        {
+            "legend": "GT-MCMC",
+            "marginalize": true,
+            "files": ["samples/slcp-test_0.pth"]
+        },
+        {
+            "legend": "NRE-MCMC",
+            "marginalize": true,
+            "files": ["results/slcp-nre_0_11111.pth"]
+        }
+    ],
+    "masks": ["11111"],
+    "quantiles": [0.3829, 0.6827, 0.9545, 0.9973]
+}

@@ -1,0 +1,16 @@
+{
+    "simulator": "HH",
+    "star": ["samples/hh-event.h5", 0],
+    "items": [
+        {
+            "legend": "NLL",
+            "files": ["results/hh-mnre-event_0_*.pth"]
+        },
+        {
+            "legend": "PL",
+            "files": ["results/hh-mnre-pl-event_0_*.pth"]
+        }
+    ],
+    "masks": ["11110101"],
+    "quantiles": [0.6827, 0.9545, 0.9973]
+}

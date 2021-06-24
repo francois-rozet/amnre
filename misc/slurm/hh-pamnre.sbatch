@@ -19,7 +19,7 @@ MODEL='{"num_layers": 10, "hidden_size": 256, "activation": "SELU"}'
 
 python train.py -simulator HH -samples $SCRATCH/samples/hh-train.h5 -valid $SCRATCH/samples/hh-valid.h5 -model "$MODEL" -masks poisson -arbitrary -o $SCRATCH/models/hh-pamnre.pth -device cuda
 
-python eval.py $SCRATCH/models/hh-pamnre.json $SCRATCH/samples/hh-event.h5 -masks =1 =2 =5 -o $SCRATCH/results/hh-pamnre-event.csv
+python eval.py $SCRATCH/models/hh-pamnre.json $SCRATCH/samples/hh-event.h5 -masks =1 =2 =8 -o $SCRATCH/results/hh-pamnre-event.csv
 
 python eval.py $SCRATCH/models/hh-pamnre.json $SCRATCH/samples/hh-test.h5 -masks =1 =2 -indices 0 64 -clean -consistency -o $SCRATCH/results/hh-pamnre_cons.csv
 python eval.py $SCRATCH/models/hh-pamnre.json $SCRATCH/samples/hh-test.h5 -masks =1 -indices 0 16384 -clean -coverage -o $SCRATCH/results/hh-pamnre_cov.csv

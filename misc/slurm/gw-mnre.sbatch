@@ -15,8 +15,6 @@ conda activate amsi
 
 cd ~/amsi
 
-export GWPY_RCPARAMS=0
-
 MODEL='{"num_layers": 3, "hidden_size": 64}'
 ENCODER='{"name": "MLP", "output_size": 256, "num_layers": 10, "hidden_size": 256, "activation": "SELU"}'
 
