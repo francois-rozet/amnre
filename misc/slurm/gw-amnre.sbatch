@@ -15,7 +15,8 @@ conda activate amsi
 
 cd ~/amsi
 
-MODEL='{"num_layers": 10, "hidden_size": 256, "activation": "SELU"}'
+MODEL='{"num_layers": 5, "hidden_size": 256, "activation": "SELU"}'
+ENCODER='{"name": "MLP", "output_size": 256, "num_layers": 7, "hidden_size": 256, "activation": "SELU"}'
 
 python train.py -simulator GW -samples $SCRATCH/samples/gw-train.h5 -valid $SCRATCH/samples/gw-valid.h5 -model "$MODEL" -arbitrary -o $SCRATCH/models/gw-amnre.pth -device cuda
 

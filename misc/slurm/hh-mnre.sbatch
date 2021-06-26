@@ -15,8 +15,8 @@ conda activate amsi
 
 cd ~/amsi
 
-MODEL='{"num_layers": 3, "hidden_size": 64}'
-ENCODER='{"name": "MLP", "output_size": 256, "num_layers": 10, "hidden_size": 256, "activation": "SELU"}'
+MODEL='{"num_layers": 3, "hidden_size": 64, "activation": "SELU"}'
+ENCODER='{"name": "MLP", "output_size": 256, "num_layers": 7, "hidden_size": 256, "activation": "SELU"}'
 
 python train.py -simulator HH -samples $SCRATCH/samples/hh-train.h5 -valid $SCRATCH/samples/hh-valid.h5 -model "$MODEL" -encoder "$ENCODER" -masks =1 =2 -o $SCRATCH/models/hh-mnre.pth -device cuda
 

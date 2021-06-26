@@ -38,6 +38,16 @@ class UnitNorm(nn.Module):
         return '\n'.join([f'(mu): {mu}', f'(sigma): {sigma}'])
 
 
+def lecun_init(model):
+    r"""LeCun normal weight initialization"""
+
+    for param in model.parameters():
+        if param.dim() > 1:
+            nn.init.kaiming_normal_(param, nonlinearity='linear')
+        else:
+            nn.init.constant_(param, 0.)
+
+
 class MLP(nn.Sequential):
     r"""Multi-Layer Perceptron (MLP)
 
@@ -61,10 +71,18 @@ class MLP(nn.Sequential):
         dropout: float = 0.,
         activation: str = 'ReLU',
     ):
-        dropout = nn.Dropout(dropout) if dropout > 0. else None
+        selfnorm = activation == 'SELU'
+
+        if dropout == 0.:
+            dropout = None
+        elif selfnorm:
+            dropout = nn.AlphaDropout(dropout)
+        else:
+            dropout = nn.Dropout(dropout)
+
         activation = ACTIVATIONS[activation]()
 
-        layers = [dropout, nn.Linear(input_size, hidden_size, bias), activation]
+        layers = [nn.Linear(input_size, hidden_size, bias), activation]
 
         for _ in range(num_layers):
             layers.extend([dropout, nn.Linear(hidden_size, hidden_size, bias), activation])
@@ -74,6 +92,9 @@ class MLP(nn.Sequential):
         layers = filter(lambda l: l is not None, layers)
 
         super().__init__(*layers)
+
+        if selfnorm:
+            lecun_init(self)
 
         self.input_size = input_size
         self.output_size = output_size
@@ -302,7 +323,7 @@ class AMNRE(nn.Module):
         self.default = mask.to(self.default)
 
         if self.hyper is not None:
-            self.hyper(self.net, self.default.float())
+            self.hyper(self.net, self.default * 2. - 1.)
 
         return self
 
@@ -315,7 +336,7 @@ class AMNRE(nn.Module):
         if mask is None:
             mask = self.default
         elif self.hyper is not None:
-            self.hyper(self.net, mask.float())
+            self.hyper(self.net, mask * 2. - 1.)
 
         if mask.dim() == 1 and theta.size(-1) < mask.numel():
             blank = theta.new_zeros(theta.shape[:-1] + mask.shape)
@@ -325,6 +346,6 @@ class AMNRE(nn.Module):
         theta = self.normalize(theta) * mask
 
         if self.hyper is None:
-            theta = torch.cat(torch.broadcast_tensors(theta, mask), dim=-1)
+            theta = torch.cat(torch.broadcast_tensors(theta, mask * 2. - 1.), dim=-1)
 
         return self.net(theta, x)

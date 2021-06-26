@@ -300,8 +300,12 @@ if __name__ == '__main__':
         })
 
         if args.valid is not None:
+            model.eval()
+
             with torch.no_grad() if targetnet is None else nullcontext():
                 _, v_losses = routine(validset, False)
+
+            model.train()
 
             stats[-1]['v_mean'] = v_losses.mean(dim=0).tolist()
             stats[-1]['v_std'] = v_losses.std(dim=0).tolist()
