@@ -15,6 +15,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-indices', nargs=2, type=int, default=(0, 1), help='indices range')
     parser.add_argument('-masks', nargs='+', default=['=1', '=2'], help='marginalization masks')
+    parser.add_argument('-filter', default=None, help='mask filter')
 
     parser.add_argument('-batch-size', type=int, default=2 ** 12, help='batch size')
     parser.add_argument('-sigma', type=float, default=2e-2, help='relative standard deviation')
@@ -64,7 +65,7 @@ if __name__ == '__main__':
     if type(model) is amsi.NRE:
         masks = torch.tensor([[True] * theta_size])
     else:
-        masks = amsi.list2masks(args.masks, theta_size)
+        masks = amsi.list2masks(args.masks, theta_size, args.filter)
 
     # Samples
     for idx in tqdm(range(*args.indices)):

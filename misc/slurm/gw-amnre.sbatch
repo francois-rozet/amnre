@@ -20,10 +20,10 @@ ENCODER='{"name": "MLP", "output_size": 256, "num_layers": 7, "hidden_size": 256
 
 python train.py -simulator GW -samples $SCRATCH/samples/gw-train.h5 -valid $SCRATCH/samples/gw-valid.h5 -model "$MODEL" -arbitrary -o $SCRATCH/models/gw-amnre.pth -device cuda
 
-python eval.py $SCRATCH/models/gw-amnre.json $SCRATCH/samples/gw-event.h5 -masks =1 =2 -o $SCRATCH/results/gw-amnre-event.csv
+python eval.py $SCRATCH/models/gw-amnre.json $SCRATCH/samples/gw-event.h5 -masks =1 =2 -filter 110111111001011 -o $SCRATCH/results/gw-amnre-event.csv
 
-python eval.py $SCRATCH/models/gw-amnre.json $SCRATCH/samples/gw-test.h5 -masks =1 =2 -indices 0 64 -clean -consistency -o $SCRATCH/results/gw-amnre_cons.csv
-python eval.py $SCRATCH/models/gw-amnre.json $SCRATCH/samples/gw-test.h5 -masks =1 -indices 0 16384 -clean -coverage -o $SCRATCH/results/gw-amnre_cov.csv
+python eval.py $SCRATCH/models/gw-amnre.json $SCRATCH/samples/gw-test.h5 -masks =1 =2 -filter 110111111001011 -indices 0 64 -clean -consistency -o $SCRATCH/results/gw-amnre_cons.csv
+python eval.py $SCRATCH/models/gw-amnre.json $SCRATCH/samples/gw-test.h5 -masks =1 -filter 110111111001011 -indices 0 16384 -clean -coverage -o $SCRATCH/results/gw-amnre_cov.csv
 
 python plots.py -loss $SCRATCH/models/gw-amnre.csv
 python plots.py -accuracy $SCRATCH/results/gw-amnre_cons.csv -metrics probability

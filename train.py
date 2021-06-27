@@ -77,7 +77,7 @@ def build_instance(settings: dict) -> tuple:
         model_args['hyper'] = settings['hyper']
         model = amsi.AMNRE(theta_size, x_size, **model_args)
     else:
-        masks = amsi.list2masks(settings['masks'], theta_size)
+        masks = amsi.list2masks(settings['masks'], theta_size, settings['filter'])
 
         if len(masks) == 0:
             model = amsi.NRE(theta_size, x_size, **model_args)
@@ -182,6 +182,7 @@ if __name__ == '__main__':
     parser.add_argument('-hyper', type=json.loads, default=None, help='hypernet architecture')
     parser.add_argument('-encoder', type=json.loads, default={}, help='encoder architecture')
     parser.add_argument('-masks', nargs='+', default=[], help='marginalzation masks')
+    parser.add_argument('-filter', default=None, help='mask filter')
     parser.add_argument('-arbitrary', default=False, action='store_true', help='arbitrary design')
     parser.add_argument('-weights', default=None, help='warm-start weights')
 
@@ -221,11 +222,12 @@ if __name__ == '__main__':
             args.masks.append('uniform')
 
         if args.masks[0] == 'poisson':
-            mask_sampler = amsi.PoissonMask(theta_size)
+            filtr = None if args.filter is None else amsi.str2mask(args.filter)
+            mask_sampler = amsi.PoissonMask(theta_size, filtr=filtr)
         elif args.masks[0] == 'uniform':
             mask_sampler = amsi.UniformMask(theta_size)
         else:
-            masks = amsi.list2masks(args.masks, theta_size)
+            masks = amsi.list2masks(args.masks, theta_size, args.filter)
             mask_sampler = amsi.SelectionMask(masks)
 
         mask_sampler.to(args.device)
