@@ -1,0 +1,27 @@
+{
+    "items": [
+        {
+            "files": [
+                "**/results/hh-amnre-event_0_10000000.pth",
+                "**/results/hh-amnre-event_0_01000000.pth",
+                "**/results/hh-amnre-event_0_00100000.pth"
+            ]
+        },
+        {
+            "marginalize": true,
+            "files": ["**/results/hh-amnre-event_0_11000000.pth"]
+        },
+        {
+            "marginalize": true,
+            "files": ["**/results/hh-amnre-event_0_10100000.pth"]
+        },
+        {
+            "marginalize": true,
+            "files": ["**/results/hh-amnre-event_0_01100000.pth"]
+        }
+    ],
+    "legend": ["marginals", null, null, null],
+    "masks": {
+        "11100000": {"size": 3.2}
+    }
+}

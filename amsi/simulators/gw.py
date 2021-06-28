@@ -190,7 +190,7 @@ def generate_waveform(
 
     # Waveform simulation
     m_1, q, phi_c, t_c, d_l = theta[:5]
-    m_2 = (m_1 - 10.) * q + 10.
+    m_2 = m_1 * q
 
     wav_args = {
         ## Static
@@ -270,7 +270,7 @@ def generate_noise(
     return real + 1j * imag
 
 
-def svd_basis(x: np.ndarray, n: int = 128) -> np.ndarray:
+def svd_basis(x: np.ndarray, n: int = 256) -> np.ndarray:
     r"""Singular Value Decomposition (SVD) basis reduction
 
     References:
@@ -299,7 +299,7 @@ class GW(Simulator):
 
         bounds = torch.tensor([
             [10., 80.],  # mass1 [solar masses]
-            [0., 1.],  # mass ratio [/]
+            [.1, 1.],  # mass ratio [/]
             [0., 2 * math.pi],  # coalesence phase [rad]
             [-0.1, 0.1],  # coalescence time [s]
             [100., 1000.],  # luminosity distance [megaparsec]

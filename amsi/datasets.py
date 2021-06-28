@@ -24,7 +24,11 @@ class OnlineDataset(data.IterableDataset):
         self.noisy = hasattr(self.simulator, 'noise')
 
         self.prior = self.simulator.prior
-        self.batch_shape = (batch_size,)
+        self.batch_size = batch_size
+
+    @property
+    def batch_shape(self) -> torch.Size:
+        return (self.batch_size,)
 
     def __iter__(self) -> Tuple[torch.Tensor, torch.Tensor]:
         while True:
@@ -42,7 +46,7 @@ class OfflineDataset(data.IterableDataset):
     def __init__(
         self,
         filename: str,  # H5
-        chunk_size: str = 2 ** 16,  # 65536
+        chunk_size: str = 2 ** 18,  # 262144
         batch_size: int = 2 ** 10,  # 1024
         device: str = 'cpu',
     ):
@@ -58,6 +62,16 @@ class OfflineDataset(data.IterableDataset):
 
         self.batch_size = batch_size
         self.device = device
+
+        if 'mu' in self.f:
+            self.mu = torch.from_numpy(self.f['mu'][:]).to(device)
+        else:
+            self.mu = None
+
+        if 'sigma' in self.f:
+            self.isigma = torch.from_numpy(self.f['sigma'][:]).to(device) ** -1
+        else:
+            self.isigma = None
 
     def __len__(self) -> int:
         return len(self.f['x'])
@@ -76,7 +90,7 @@ class OfflineDataset(data.IterableDataset):
         else:
             theta = None
 
-        return theta, x
+        return theta, self.normalize(x)
 
     def __iter__(self) -> Tuple[torch.Tensor, torch.Tensor]:
         np.random.shuffle(self.chunks)
@@ -107,7 +121,16 @@ class OfflineDataset(data.IterableDataset):
             ):
                 theta, x = theta.to(self.device), x.to(self.device)
 
-                yield theta, x
+                yield theta, self.normalize(x)
+
+    def normalize(self, x: torch.Tensor):
+        if self.mu is not None:
+            x = x - self.mu
+
+        if self.isigma is not None:
+            x = x * self.isigma
+
+        return x
 
 
 class LTEDataset(data.IterableDataset):

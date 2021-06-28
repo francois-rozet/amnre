@@ -12,10 +12,11 @@
 #
 
 conda activate amsi
-
 cd ~/amsi
 
-python sample.py -simulator HH -seed 0 -events -o $SCRATCH/samples/hh-event.h5
-python sample.py -simulator HH -seed 1 -samples 1048576 -reference $SCRATCH/samples/hh-event.h5 -o $SCRATCH/samples/hh-train.h5
-python sample.py -simulator HH -seed 2 -samples 131072 -reference $SCRATCH/samples/hh-event.h5 -o $SCRATCH/samples/hh-test.h5
-python sample.py -simulator HH -seed 3 -samples 131072 -reference $SCRATCH/samples/hh-event.h5 -o $SCRATCH/samples/hh-valid.h5
+SRC=$SCRATCH/samples
+
+python sample.py -simulator HH -seed 0 -moments -events -o $SRC/hh-event.h5
+python sample.py -simulator HH -seed 1 -moments -reference $SRC/hh-event.h5 -samples 1048576 -o $SRC/hh-train.h5
+python sample.py -simulator HH -seed 2 -moments -reference $SRC/hh-event.h5 -samples 131072 -o $SRC/hh-test.h5
+python sample.py -simulator HH -seed 3 -moments -reference $SRC/hh-event.h5 -samples 131072 -o $SRC/hh-valid.h5

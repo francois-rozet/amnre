@@ -56,13 +56,10 @@ class NLLWithLogitsLoss(nn.Module):
         return -reduce(ll, self.reduction)
 
 
-class PeripheralWithLogitsLoss(nn.Module):
-    r"""Peripheral With Logits Loss
+class FocalWithLogitsLoss(nn.Module):
+    r"""Focal With Logits Loss
 
-    - (1 - x^gamma) log(x)
-
-    Note:
-        This is an adaptation of the Focal Loss.
+    - (1 - x)^gamma log(x)
 
     References:
         [1] Focal Loss for Dense Object Detection
@@ -74,11 +71,30 @@ class PeripheralWithLogitsLoss(nn.Module):
         https://arxiv.org/abs/2002.09437
     """
 
-    def __init__(self, gamma: float = 4., reduction: str = 'batchmean'):
+    def __init__(self, gamma: float = 2., reduction: str = 'batchmean'):
         super().__init__()
 
         self.gamma = gamma
         self.reduction = reduction
+
+    def forward(self, input: torch.Tensor, weight: torch.Tensor = None) -> torch.Tensor:
+        ll = F.logsigmoid(input)  # log-likelihood
+        fc = -(1 - ll.exp()) ** self.gamma * ll  # focal
+
+        if weight is not None:
+            fc = weight * fc
+
+        return reduce(fc, self.reduction)
+
+
+class PeripheralWithLogitsLoss(FocalWithLogitsLoss):
+    r"""Peripheral With Logits Loss
+
+    - (1 - x^gamma) log(x)
+
+    Note:
+        This is an adaptation of the Focal Loss.
+    """
 
     def forward(self, input: torch.Tensor, weight: torch.Tensor = None) -> torch.Tensor:
         ll = F.logsigmoid(input)  # log-likelihood
@@ -113,16 +129,16 @@ class QSWithLogitsLoss(nn.Module):
         return reduce(qs, self.reduction)
 
 
-class RDLoss(MSELoss):
-    r"""Ratio Distillation (RD) Loss
+class RRLoss(MSELoss):
+    r"""Ratio Regression (RR) Loss
 
-    (r(theta_a | x) - r(theta | x))^2
+    (r - r*)^2 or (1 / r - 1 / r*)^2
     """
 
     def forward(
         self,
-        ratio: torch.Tensor,  # log r(theta_a | x)
-        target: torch.Tensor,  # log r(theta | x)
+        ratio: torch.Tensor,  # +- log r
+        target: torch.Tensor,  # +- log r*
     ) -> torch.Tensor:
         ratio, target = ratio.exp(), target.detach().exp()
 
@@ -132,8 +148,8 @@ class RDLoss(MSELoss):
         return super().forward(ratio, target.expand(ratio.shape))
 
 
-class SDLoss(MSELoss):
-    r"""Score Distillation (SD) Loss
+class SRLoss(MSELoss):
+    r"""Score Regression (SR) Loss
 
     (grad log r(theta_a | x) - grad log r(theta | x))^2
     """

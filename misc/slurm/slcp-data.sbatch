@@ -12,9 +12,10 @@
 #
 
 conda activate amsi
-
 cd ~/amsi
 
-python sample.py -simulator SLCP -seed 0 -samples 1048576 -o $SCRATCH/samples/slcp-train.h5
-python sample.py -simulator SLCP -seed 1 -samples 131072 -o $SCRATCH/samples/slcp-test.h5
-python sample.py -simulator SLCP -seed 2 -samples 131072 -o $SCRATCH/samples/slcp-valid.h5
+SRC=$SCRATCH/samples
+
+python sample.py -simulator SLCP -seed 0 -samples 1048576 -o $SRC/slcp-train.h5
+python sample.py -simulator SLCP -seed 1 -samples 131072 -o $SRC/slcp-test.h5
+python sample.py -simulator SLCP -seed 2 -samples 131072 -o $SRC/slcp-valid.h5

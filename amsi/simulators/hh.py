@@ -24,8 +24,6 @@ class HH(Simulator):
     """
 
     def __init__(self,
-        mu: np.ndarray = None,
-        sigma: np.ndarray = None,
         seed: int = 0,
         cython: bool = True,
         n_xcorr: int = 0,
@@ -72,21 +70,19 @@ class HH(Simulator):
 
         self.generator = MPGenerator(models=models, prior=prior, summary=stats)
 
-        self.mu, self.sigma = mu, sigma
-
         low = torch.from_numpy(prior.lower).float()
         high = torch.from_numpy(prior.upper).float()
 
         self.register_buffer('low', low)
         self.register_buffer('high', high)
 
-        self.theta_star = theta[None].astype(np.float32)
+        self.theta_star = theta[None]
         self.x_star = syn_obs_stats(
             data=observation,
             I=I, t_on=t_on, t_off=t_off, dt=dt,
             params=theta,
             seed=seed, cython=cython, n_xcorr=n_xcorr, n_mom=n_mom, n_summary=n_summary,
-        ).astype(np.float32)
+        )
 
     def masked_prior(self, mask: torch.BoolTensor) -> Distribution:
         r""" p(theta_a) """
@@ -109,18 +105,9 @@ class HH(Simulator):
         theta = theta.reshape(sample_shape + theta.shape[1:]).astype(np.float32)
         x = x.reshape(sample_shape + x.shape[1:]).astype(np.float32)
 
-        return theta, self.normalize(x)
-
-    def normalize(self, x: np.ndarray) -> np.ndarray:
-        if self.mu is not None:
-            x = x - self.mu
-
-        if self.sigma is not None:
-            x = x / self.sigma
-
-        return x
+        return theta, x
 
     def events(self) -> Tuple[np.ndarray, np.ndarray]:
         r""" (theta*, x*) """
 
-        return self.theta_star, self.normalize(self.x_star)
+        return self.theta_star.astype(np.float32), self.x_star.astype(np.float32)

@@ -12,10 +12,11 @@
 #
 
 conda activate amsi
-
 cd ~/amsi
 
-python sample.py -simulator GW -seed 0 -events -o $SCRATCH/samples/gw-event.h5
-python sample.py -simulator GW -seed 1 -samples 1048576 -reference $SCRATCH/samples/gw-event.h5 -o $SCRATCH/samples/gw-train.h5
-python sample.py -simulator GW -seed 2 -samples 131072 -reference $SCRATCH/samples/gw-event.h5 -o $SCRATCH/samples/gw-test.h5
-python sample.py -simulator GW -seed 3 -samples 131072 -reference $SCRATCH/samples/gw-event.h5 -o $SCRATCH/samples/gw-valid.h5
+SRC=$SCRATCH/samples
+
+python sample.py -simulator GW -seed 0 -chunk-size 32768 -events -o $SRC/gw-event.h5
+python sample.py -simulator GW -seed 1 -reference $SRC/gw-event.h5 -samples 4194304 -o $SRC/gw-train.h5
+python sample.py -simulator GW -seed 2 -reference $SRC/gw-event.h5 -samples 131072 -o $SRC/gw-test.h5
+python sample.py -simulator GW -seed 3 -reference $SRC/gw-event.h5 -samples 131072 -o $SRC/gw-valid.h5

@@ -1,0 +1,9 @@
+{
+    "items": [
+        {"files": ["**/results/hh-amnre-event_0_*.pth"]},
+        {"files": ["**/results/hh-amnre-pm-event_0_*.pth"]}
+    ],
+    "legend": ["uniform", "poisson"],
+    "star": ["samples/hh-event.h5", 0],
+    "masks": ["11110101"]
+}

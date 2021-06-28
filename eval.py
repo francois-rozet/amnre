@@ -10,7 +10,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Evaluation')
 
-    parser.add_argument('settings', help='settings file (JSON)')
+    parser.add_argument('network', help='network file (PTH)')
     parser.add_argument('samples', help='samples file (H5)')
 
     parser.add_argument('-indices', nargs=2, type=int, default=(0, 1), help='indices range')
@@ -35,21 +35,19 @@ if __name__ == '__main__':
 
     parser.add_argument('-classify', default=False, action='store_true')
 
-    parser.add_argument('-o', '--output', default=None, help='output file (CSV)')
+    parser.add_argument('-o', '--output', default='products/results/out.csv', help='output file (CSV)')
 
     args = parser.parse_args()
 
     torch.set_grad_enabled(False)
 
     # Output
-    if args.output is None:
-        args.output = args.settings.replace('.json', '_')
-        args.output += os.path.basename(args.samples).replace('.h5', '.csv')
-    elif os.path.dirname(args.output):
+    if os.path.dirname(args.output):
         os.makedirs(os.path.dirname(args.output), exist_ok=True)
 
     # Settings
-    settings = load_settings(args.settings)
+    settings = load_settings(args.network.replace('.pth', '.json'))
+    settings['weights'] = args.network
     settings['samples'] = args.samples
 
     # Simulator & Model
@@ -75,8 +73,7 @@ if __name__ == '__main__':
             index_star = (theta_star - low) / (high - low)
             index_star = (args.bins * index_star).long()
             index_star = index_star.clip(max=args.bins - 1)
-
-            theta_star, index_star = theta_star.cpu(), index_star.cpu()
+            index_star = index_star.cpu()
 
         ## Ground truth
         if args.accuracy and simulator.tractable:
@@ -114,7 +111,7 @@ if __name__ == '__main__':
         hists = {}
         divergences = {}
 
-        z_star = model.encoder(x_star)
+        z_star = model.encoder(x_star[None])[0]
 
         for mask in masks:
             textmask = amsi.mask2str(mask)
@@ -189,7 +186,7 @@ if __name__ == '__main__':
                 else:
                     pdf = hist.view(-1)
 
-                metrics[-1]['quantile'] = pdf[pdf >= p].sum().item()
+                metrics[-1]['percentile'] = 1. - pdf[pdf >= p].sum().item()
 
             #### Consistency
             hist = hist.cpu()
@@ -239,7 +236,9 @@ if __name__ == '__main__':
         if settings['adversary'] is None:
             adversary = Dummy()
         else:
-            _, _, adversary = build_instance(load_settings(settings['adversary']))
+            adversary = load_model(settings['adversary'])
+            adversary.to(device)
+            adversary.eval()
 
         dataset = amsi.LTEDataset(dataset)
         length = len(dataset)

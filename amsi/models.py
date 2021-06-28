@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 
-from typing import Callable, Iterable, Tuple, Union
+from typing import List, Tuple, Union
 
 
 ACTIVATIONS = {
@@ -13,6 +13,12 @@ ACTIVATIONS = {
     'CELU': nn.CELU,
     'SELU': nn.SELU,
     'GELU': nn.GELU,
+}
+
+NORMALIZATIONS = {
+    'batch': nn.BatchNorm1d,
+    'group': nn.GroupNorm,
+    'layer': nn.LayerNorm,
 }
 
 
@@ -57,8 +63,10 @@ class MLP(nn.Sequential):
         num_layers: The number of layers.
         hidden_size: The size of hidden layers.
         bias: Whether to use bias or not.
-        dropout: The dropout rate.
         activation: The activation layer type.
+        dropout: The dropout rate.
+        normalization: The normalization layer type.
+        linear_first: Whether the first layer is a linear transform or not.
     """
 
     def __init__(
@@ -68,10 +76,13 @@ class MLP(nn.Sequential):
         hidden_size: int = 64,
         num_layers: int = 1,
         bias: bool = True,
-        dropout: float = 0.,
         activation: str = 'ReLU',
+        dropout: float = 0.,
+        normalization: str = None,
+        linear_first: bool = True,
     ):
-        selfnorm = activation == 'SELU'
+        activation = ACTIVATIONS[activation]
+        selfnorm = normalization == 'self'
 
         if dropout == 0.:
             dropout = None
@@ -80,14 +91,23 @@ class MLP(nn.Sequential):
         else:
             dropout = nn.Dropout(dropout)
 
-        activation = ACTIVATIONS[activation]()
+        normalization = NORMALIZATIONS.get(normalization, lambda x: None)
 
-        layers = [nn.Linear(input_size, hidden_size, bias), activation]
+        layers = [
+            nn.Linear(input_size, hidden_size, bias) if linear_first else None,
+            normalization(hidden_size),
+            activation(),
+        ]
 
         for _ in range(num_layers):
-            layers.extend([dropout, nn.Linear(hidden_size, hidden_size, bias), activation])
+            layers.extend([
+                dropout,
+                nn.Linear(hidden_size, hidden_size, bias),
+                normalization(hidden_size),
+                activation(),
+            ])
 
-        layers.extend([dropout, nn.Linear(hidden_size, output_size, bias)])
+        layers.append(nn.Linear(hidden_size, output_size, bias))
 
         layers = filter(lambda l: l is not None, layers)
 
@@ -104,13 +124,13 @@ class ResBlock(MLP):
     r"""Residual Block (ResBlock)
 
     Args:
-        input_size: The input (and output) size.
+        size: The input, output and hidden sizes.
 
         **kwargs are transmitted to `MLP`.
     """
 
-    def __init__(self, input_size: int, **kwargs):
-        super().__init__(input_size, input_size, **kwargs)
+    def __init__(self, size: int, **kwargs):
+        super().__init__(size, size, size, linear_first=False, **kwargs)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         return input + super().forward(input)
@@ -122,29 +142,28 @@ class ResNet(nn.Sequential):
     Args:
         input_size: The input size.
         output_size: The output size.
-        res_size: The intermediate residual size.
+        residual_size: The intermediate residual size.
         num_blocks: The number of residual blocks.
 
-        **kwargs are transmitted to `ResBlock` and `MLP`.
+        **kwargs are transmitted to `ResBlock`.
     """
 
     def __init__(
         self,
         input_size: int,
         output_size: int,
-        res_size: int = 64,
+        residual_size: int = 64,
         num_blocks: int = 3,
         **kwargs,
     ):
-        activation = ACTIVATIONS[kwargs.get('activation', 'ReLU')]
         bias = kwargs.get('bias', True)
 
-        blocks = [nn.Linear(input_size, res_size, bias)]
+        blocks = [nn.Linear(input_size, residual_size, bias)]
 
         for _ in range(num_blocks):
-            blocks.extend(ResBlock(res_size, **kwargs))
+            blocks.append(ResBlock(residual_size, **kwargs))
 
-        blocks.append(nn.Linear(res_size, output_size, bias))
+        blocks.append(nn.Linear(residual_size, output_size, bias))
 
         super().__init__(*blocks)
 
@@ -173,7 +192,7 @@ class HyperNet(nn.Module):
         super().__init__()
 
         output_size = sum(p.numel() for p in network.parameters())
-        self.weights = MLP(input_size, output_size, **kwargs)
+        self.weights = ResNet(input_size, output_size, **kwargs)
 
     def forward(self, network: nn.Module, condition: torch.Tensor) -> nn.Module:
         reparametrize(network, self.weights(condition))

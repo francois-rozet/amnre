@@ -1,0 +1,12 @@
+{
+    "items": [
+        {
+            "marginalize": true,
+            "files": ["**/results/gw-nre-event_0_111111111111111.pth"]
+        }
+    ],
+    "masks": {
+        "110111111001000": {},
+        "000000000000011": {"size": 3.2}
+    }
+}

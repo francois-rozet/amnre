@@ -1,13 +1,10 @@
 {
-    "simulator": "HH",
-    "star": ["samples/hh-event.h5", 0],
     "items": [
         {
-            "legend": "NRE-MCMC",
             "marginalize": true,
-            "files": ["results/hh-nre-event_0_11111111.pth"]
+            "files": ["**/results/hh-nre-event_0_11111111.pth"]
         }
     ],
-    "masks": ["11110101"],
-    "quantiles": [0.6827, 0.9545, 0.9973]
+    "star": ["samples/hh-event.h5", 0],
+    "masks": ["11110101"]
 }

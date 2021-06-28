@@ -47,10 +47,10 @@ def build_instance(settings: dict) -> tuple:
 
     # Dataset
     if settings['samples'] is None:
-        dataset = amsi.OnlineDataset(simulator, batch_size=settings['batch_size'])
+        dataset = amsi.OnlineDataset(simulator, batch_size=settings['bs'])
         theta, x = simulator.sample()
     else:
-        dataset = amsi.OfflineDataset(settings['samples'], batch_size=settings['batch_size'], device=settings['device'])
+        dataset = amsi.OfflineDataset(settings['samples'], batch_size=settings['bs'], device=settings['device'])
         theta, x = dataset[0]
 
         if theta is None:
@@ -97,66 +97,17 @@ def build_instance(settings: dict) -> tuple:
 def load_settings(filename: str) -> dict:
     with open(filename) as f:
         settings = json.load(f)
-        settings['weights'] = filename.replace('.json', '.pth')
 
     return settings
 
 
-def routine(dataset, optimize: bool = True) -> Tuple[float, torch.Tensor]:
-    losses = []
+def load_model(filename: str) -> nn.Module:
+    settings = load_settings(filename.replace('.pth', '.json'))
+    settings['weights'] = filename
 
-    start = time()
+    _, _, model = build_instance(settings)
 
-    for theta, theta_prime, x in islice(dataset, args.per_epoch):
-        theta.requires_grad = True
-        z = model.encoder(x)
-        adv_z = adversary.encoder(x)
-
-        if args.arbitrary:
-            if model.hyper is None:
-                mask = mask_sampler(theta.shape[:1])
-            else:
-                mask = mask_sampler()
-                model[mask]
-                adversary[mask]
-                mask = None
-
-            ratio = model(theta, z, mask)
-            ratio_prime = model(theta_prime, z, mask)
-
-            adv_ratio_prime = adversary(theta_prime, adv_z, mask)
-        else:
-            ratio = model(theta, z)
-            ratio_prime = model(theta_prime, z)
-
-            adv_ratio_prime = adversary(theta_prime, adv_z)
-
-        if adv_ratio_prime is not None:
-            adv_ratio_prime = adv_ratio_prime.exp()
-
-        l = criterion(ratio) + criterion(-ratio_prime, adv_ratio_prime)
-
-        if targetnet is not None:
-            target_z = targetnet.encoder(x)
-            target_ratio = targetnet(theta, target_z)
-            target_ratio_prime = targetnet(theta_prime, target_z)
-
-            l_rd = args.lambdas[0] * rd_loss(ratio_prime, target_ratio_prime)
-            l_ird = args.lambdas[0] * rd_loss(-ratio, -target_ratio)
-            l_sd = args.lambdas[1] * sd_loss(theta, ratio, target_ratio)
-
-            l = torch.stack([l, l_rd, l_ird, l_sd])
-
-        losses.append(l.tolist())
-
-        if optimize:
-            optimizer.zero_grad()
-            l.sum().backward()
-            optimizer.step()
-
-    end = time()
-
-    return end - start, torch.tensor(losses)
+    return model
 
 
 class Dummy(nn.Module):
@@ -186,32 +137,36 @@ if __name__ == '__main__':
     parser.add_argument('-arbitrary', default=False, action='store_true', help='arbitrary design')
     parser.add_argument('-weights', default=None, help='warm-start weights')
 
-    parser.add_argument('-criterion', default='NLL', choices=['NLL', 'PL', 'QS'], help='optimization criterion')
-    parser.add_argument('-adversary', default=None, help='adversary network settings file (JSON)')
-    parser.add_argument('-distillation', default=None, help='distillation network settings file (JSON)')
+    parser.add_argument('-criterion', default='NLL', choices=['NLL', 'FL', 'PL', 'QS'], help='optimization criterion')
+    parser.add_argument('-adversary', default=None, help='adversary network file (PTH)')
+    parser.add_argument('-distillation', default=None, help='distillation network file (PTH)')
     parser.add_argument('-lambdas', type=float, nargs=2, default=(1e-3, 1e-3), help='auxiliary losses weights')
 
-    parser.add_argument('-epochs', type=int, default=100, help='number of epochs')
-    parser.add_argument('-batch-size', type=int, default=1024, help='batch size')
+    parser.add_argument('-epochs', type=int, default=256, help='number of epochs')
     parser.add_argument('-per-epoch', type=int, default=256, help='batches per epoch')
+    parser.add_argument('-bs', type=int, default=1024, help='batch size')
     parser.add_argument('-lr', type=float, default=1e-3, help='initial learning rate')
-    parser.add_argument('-weight-decay', type=float, default=0., help='weight decay')
-    parser.add_argument('-amsgrad', type=bool, default=True, help='AMS gradient')
-    parser.add_argument('-patience', type=int, default=10, help='scheduler patience')
+    parser.add_argument('-weight-decay', type=float, default=1e-3, help='weight decay')
+    parser.add_argument('-amsgrad', type=bool, default=False, help='AMS gradient')
+    parser.add_argument('-patience', type=int, default=5, help='scheduler patience')
     parser.add_argument('-threshold', type=float, default=1e-2, help='scheduler threshold')
-    parser.add_argument('-factor', type=float, default=2e-1, help='scheduler factor')
+    parser.add_argument('-factor', type=float, default=5e-1, help='scheduler factor')
     parser.add_argument('-min-lr', type=float, default=1e-6, help='minimum learning rate')
+    parser.add_argument('-clip', type=float, default=1e2, help='gradient norm')
 
     parser.add_argument('-valid', default=None, help='validation samples file (H5)')
 
-    parser.add_argument('-o', '--output', default='../products/models/out.pth', help='output file (PTH)')
+    parser.add_argument('-o', '--output', default='products/models/out.pth', help='output file (PTH)')
 
     args = parser.parse_args()
     args.date = datetime.now().strftime(r'%Y-%m-%d %H:%M:%S')
 
-    settings = vars(args)
+    # Output directory
+    if os.path.dirname(args.output):
+        os.makedirs(os.path.dirname(args.output), exist_ok=True)
 
     # Simulator & Model
+    settings = vars(args)
     simulator, dataset, model = build_instance(settings)
 
     ## Arbitrary masks
@@ -233,7 +188,9 @@ if __name__ == '__main__':
         mask_sampler.to(args.device)
 
     # Criterion(s)
-    if args.criterion == 'PL':
+    if args.criterion == 'FL':
+        criterion = amsi.FocalWithLogitsLoss()
+    elif args.criterion == 'PL':
         criterion = amsi.PeripheralWithLogitsLoss()
     elif args.criterion == 'QS':
         criterion = amsi.QSWithLogitsLoss()
@@ -244,7 +201,9 @@ if __name__ == '__main__':
     if args.adversary is None:
         adversary = Dummy()
     elif os.path.isfile(args.adversary):
-        _, _, adversary = build_instance(load_settings(args.adversary))
+        adversary = load_model(args.adversary)
+        adversary.to(args.device)
+        adversary.eval()
     else:
         adversary = Dummy()
 
@@ -255,25 +214,26 @@ if __name__ == '__main__':
     if args.distillation is None:
         targetnet = None
     elif os.path.isfile(args.distillation):
-        _, _, targetnet = build_instance(load_settings(args.distillation))
+        targetnet = load_model(args.distillation)
         targetnet.to(args.device)
+        targetnet.eval()
     elif simulator.tractable:
         targetnet = amsi.LTERatio(simulator)
     else:
         targetnet = None
 
-    rd_loss = amsi.RDLoss()
-    sd_loss = amsi.SDLoss()
+    rr_loss = amsi.RRLoss()
+    sr_loss = amsi.SRLoss()
 
     # Optimizer & Scheduler
-    optimizer = optim.Adam(
+    optimizer = optim.AdamW(
         model.parameters(),
         lr=args.lr,
         weight_decay=args.weight_decay,
         amsgrad=args.amsgrad,
     )
 
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+    scheduler = amsi.ReduceLROnPlateau(
         optimizer,
         factor=args.factor,
         patience=args.patience,
@@ -285,7 +245,65 @@ if __name__ == '__main__':
     trainset = amsi.LTEDataset(dataset)
 
     if args.valid is not None:
-        validset = amsi.LTEDataset(amsi.OfflineDataset(args.valid, batch_size=args.batch_size, device=args.device))
+        validset = amsi.LTEDataset(amsi.OfflineDataset(args.valid, batch_size=args.bs, device=args.device))
+
+    # Routine
+    def routine(dataset, optimize: bool = True) -> Tuple[float, torch.Tensor]:
+        losses = []
+
+        start = time()
+
+        for theta, theta_prime, x in islice(dataset, args.per_epoch):
+            theta.requires_grad = True
+            z = model.encoder(x)
+            adv_z = adversary.encoder(x)
+
+            if args.arbitrary:
+                if model.hyper is None:
+                    mask = mask_sampler(theta.shape[:1])
+                else:
+                    mask = mask_sampler()
+                    model[mask]
+                    adversary[mask]
+                    mask = None
+
+                ratio = model(theta, z, mask)
+                ratio_prime = model(theta_prime, z, mask)
+
+                adv_ratio_prime = adversary(theta_prime, adv_z, mask)
+            else:
+                ratio = model(theta, z)
+                ratio_prime = model(theta_prime, z)
+
+                adv_ratio_prime = adversary(theta_prime, adv_z)
+
+            if adv_ratio_prime is not None:
+                adv_ratio_prime = adv_ratio_prime.exp()
+
+            l = criterion(ratio) + criterion(-ratio_prime, adv_ratio_prime)
+
+            if targetnet is not None:
+                target_z = targetnet.encoder(x)
+                target_ratio = targetnet(theta, target_z)
+                target_ratio_prime = targetnet(theta_prime, target_z)
+
+                l_rr = args.lambdas[0] * rr_loss(ratio_prime, target_ratio_prime)
+                l_irr = args.lambdas[0] * rr_loss(-ratio, -target_ratio)
+                l_sr = args.lambdas[1] * sr_loss(theta, ratio, target_ratio)
+
+                l = torch.stack([l, l_rd, l_ird, l_sd])
+
+            losses.append(l.tolist())
+
+            if optimize:
+                optimizer.zero_grad()
+                l.sum().backward()
+                nn.utils.clip_grad_norm_(model.parameters(), args.clip)
+                optimizer.step()
+
+        end = time()
+
+        return end - start, torch.tensor(losses)
 
     # Training
     stats = []
@@ -296,7 +314,7 @@ if __name__ == '__main__':
         stats.append({
             'epoch': epoch,
             'time': timing,
-            'lr': optimizer.param_groups[0]['lr'],
+            'lr': scheduler.lr,
             'mean': losses.mean(dim=0).tolist(),
             'std': losses.std(dim=0).tolist(),
         })
@@ -309,15 +327,23 @@ if __name__ == '__main__':
 
             model.train()
 
-            stats[-1]['v_mean'] = v_losses.mean(dim=0).tolist()
-            stats[-1]['v_std'] = v_losses.std(dim=0).tolist()
+            stats[-1].update({
+                'v_mean': v_losses.mean(dim=0).tolist(),
+                'v_std': v_losses.std(dim=0).tolist(),
+            })
 
-        ## Scheduler
-        scheduler.step(losses.mean())
+            scheduler.step(v_losses.mean())
+        else:
+            scheduler.step(losses.mean())
 
-    # Output
-    if os.path.dirname(args.output):
-        os.makedirs(os.path.dirname(args.output), exist_ok=True)
+        if scheduler.plateau:
+            df = pd.DataFrame(stats)
+            df.to_csv(args.output.replace('.pth', '.csv'), index=False)
+
+            if scheduler.bottom:
+                break
+
+    # Outputs
 
     ## Weights
     if hasattr(model, 'clear'):
@@ -328,7 +354,3 @@ if __name__ == '__main__':
     ## Settings
     with open(args.output.replace('.pth', '.json'), 'w') as f:
         json.dump(settings, f, indent=4)
-
-    ## Stats
-    df = pd.DataFrame(stats)
-    df.to_csv(args.output.replace('.pth', '.csv'), index=False)

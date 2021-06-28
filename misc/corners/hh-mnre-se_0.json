@@ -1,0 +1,9 @@
+{
+    "items": [
+        {"files": ["**/results/hh-mnre-event_0_*.pth"]},
+        {"files": ["**/results/hh-mnre-se-event_0_*.pth"]}
+    ],
+    "legend": ["distinct", "shared"],
+    "star": ["samples/hh-event.h5", 0],
+    "masks": ["11110101"]
+}

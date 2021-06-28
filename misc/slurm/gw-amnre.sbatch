@@ -4,28 +4,26 @@
 #
 #SBATCH --job-name=gw-amnre         # Name of the job
 #SBATCH --export=ALL                # Export all environment variables
-#SBATCH --output=gw-amnre.log       # Log-file
+#SBATCH --output=gw-amnre_%a.log    # Log-file
 #SBATCH --cpus-per-task=1           # Number of CPU cores to allocate
 #SBATCH --mem-per-cpu=16G           # Memory to allocate per allocated CPU core
 #SBATCH --gres=gpu:1                # Number of GPU's
-#SBATCH --time=06:00:00             # Max execution time
+#SBATCH --time=12:00:00             # Max execution time
 #
+#SBATCH --array=1-3                 # Job array
 
 conda activate amsi
-
 cd ~/amsi
 
-MODEL='{"num_layers": 5, "hidden_size": 256, "activation": "SELU"}'
-ENCODER='{"name": "MLP", "output_size": 256, "num_layers": 7, "hidden_size": 256, "activation": "SELU"}'
+SRC=$SCRATCH/samples
+DST=$SCRATCH/$SLURM_ARRAY_TASK_ID
 
-python train.py -simulator GW -samples $SCRATCH/samples/gw-train.h5 -valid $SCRATCH/samples/gw-valid.h5 -model "$MODEL" -arbitrary -o $SCRATCH/models/gw-amnre.pth -device cuda
+MODEL='{"num_layers": 11, "hidden_size": 512, "activation": "ELU"}'
+ENCODER='{"name": "ResNet", "num_blocks": 10, "residual_size": 512, "output_size": 512, "activation": "ELU"}'
+FILTER="110111111001011"
 
-python eval.py $SCRATCH/models/gw-amnre.json $SCRATCH/samples/gw-event.h5 -masks =1 =2 -filter 110111111001011 -o $SCRATCH/results/gw-amnre-event.csv
+python train.py -simulator GW -samples $SRC/gw-train.h5 -valid $SRC/gw-valid.h5 -model "$MODEL" -encoder "$ENCODER" -arbitrary -epochs 512 -per-epoch 1024 -lr 2e-4 -patience 11 -o $DST/models/gw-amnre.pth -device cuda
 
-python eval.py $SCRATCH/models/gw-amnre.json $SCRATCH/samples/gw-test.h5 -masks =1 =2 -filter 110111111001011 -indices 0 64 -clean -consistency -o $SCRATCH/results/gw-amnre_cons.csv
-python eval.py $SCRATCH/models/gw-amnre.json $SCRATCH/samples/gw-test.h5 -masks =1 -filter 110111111001011 -indices 0 16384 -clean -coverage -o $SCRATCH/results/gw-amnre_cov.csv
-
-python plots.py -loss $SCRATCH/models/gw-amnre.csv
-python plots.py -accuracy $SCRATCH/results/gw-amnre_cons.csv -metrics probability
-python plots.py -consistency $SCRATCH/results/gw-amnre_cons_*.csv
-python plots.py -coverage $SCRATCH/results/gw-amnre_cov.csv
+python eval.py $DST/models/gw-amnre.pth $SRC/gw-event.h5 -masks =1 =2 -filter $FILTER -o $DST/results/gw-amnre-event.csv
+python eval.py $DST/models/gw-amnre.pth $SRC/gw-test.h5 -masks =1 =2 -filter $FILTER -indices 0 64 -clean -consistency -o $DST/results/gw-amnre_cons.csv
+python eval.py $DST/models/gw-amnre.pth $SRC/gw-test.h5 -masks =1 -filter $FILTER -indices 0 8192 -bins 256 -clean -coverage -o $DST/results/gw-amnre_cov.csv

@@ -1,15 +1,11 @@
 {
-    "simulator": "GW",
     "items": [
-        {
-            "legend": "MNRE",
-            "files": ["results/gw-mnre-event_0_*.pth"]
-        },
-        {
-            "legend": "AMNRE",
-            "files": ["results/gw-amnre-event_0_*.pth"]
-        }
+        {"files": ["**/results/gw-mnre-event_0_*.pth"]},
+        {"files": ["**/results/gw-amnre-event_0_*.pth"]}
     ],
-    "masks": ["110111111001000", "000000000000011"],
-    "quantiles": [0.6827, 0.9545, 0.9973]
+    "legend": ["MNRE", "AMNRE"],
+    "masks": {
+        "110111111001000": {},
+        "000000000000011": {"size": 3.2}
+    }
 }

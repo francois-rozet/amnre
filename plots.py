@@ -7,6 +7,7 @@ import json
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import pandas as pd
 import seaborn as sns
 import torch
@@ -14,6 +15,7 @@ import torchist
 import tqdm
 
 from itertools import cycle
+from scipy.stats import kstest
 from sklearn.metrics import roc_curve, auc
 from typing import Dict, List, Tuple, Union
 
@@ -27,18 +29,19 @@ Vector = Union[List[Scalar], Array]
 
 plt.rcParams.update({
     'axes.axisbelow': True,
-    'axes.grid': True,
-    'axes.linewidth': 1.,
+    'axes.linewidth': 0.8,
     'figure.autolayout': True,
-    'figure.figsize': (4., 3.),
+    'figure.figsize': (3.2, 2.4),
     'font.size': 12.,
-    'legend.fontsize': 'small',
+    'legend.fontsize': 'x-small',
+    'lines.linewidth': 0.8,
+    'lines.markersize': 6.,
     'savefig.bbox': 'tight',
     'savefig.transparent': True,
-    'xtick.labelsize': 'small',
-    'xtick.major.width': 1.,
-    'ytick.labelsize': 'small',
-    'ytick.major.width': 1.,
+    'xtick.labelsize': 'x-small',
+    'xtick.major.width': 0.8,
+    'ytick.labelsize': 'x-small',
+    'ytick.major.width': 0.8,
 })
 
 if mpl.checkdep_usetex(True):
@@ -53,108 +56,95 @@ if mpl.checkdep_usetex(True):
 # Plots #
 #########
 
-def loss_plot(filename: str) -> mpl.figure.Figure:
-    df = pd.read_csv(filename)
+def translate(mask: str) -> str:
+    try:
+        return ', '.join(
+            l for l, m in zip(simulator.labels, mask)
+            if m == '1'
+        )
+    except:
+        return mask
 
+
+def loss_plot(dfs: List[pd.DataFrame]) -> mpl.figure.Figure:
     fig = plt.figure()
 
-    plt.plot(df['epoch'], df['mean'], label='training')
-    plt.fill_between(df['epoch'], df['mean'] - df['std'], df['mean'] + df['std'], alpha=0.25)
+    for df in dfs:
+        lines = plt.plot(df['epoch'], df['v_mean'])
+        color = lines[-1].get_color()
 
-    plt.plot(df['epoch'], df['v_mean'], label='validation')
-    plt.fill_between(df['epoch'], df['v_mean'] - df['v_std'], df['v_mean'] + df['v_std'], alpha=0.25)
+        plt.plot(df['epoch'], df['mean'], color=color, linestyle='--', alpha=0.5)
 
+    plt.grid()
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
-    plt.legend()
+
+    handles = [
+        mpl.lines.Line2D([], [], color='k', label='validation'),
+        mpl.lines.Line2D([], [], color='k', linestyle='--', label='training'),
+    ]
+
+    plt.legend(handles=handles)
 
     return fig
 
 
-def bar_plot(df: pd.DataFrame, labels: List[str] = None, quantity: str = None) -> mpl.figure.Figure:
+def bar_plot(df: pd.DataFrame, quantity: str = None, legend: List[str] = None) -> mpl.figure.Figure:
     df = df.groupby('mask', sort=False)
     mu, sigma = df.mean(), df.std()
 
-    rows, cols = mu.shape
-    width, height = plt.rcParams['figure.figsize']
+    labels = [translate(mask) for mask in mu.index]
+    mu, sigma = mu.to_numpy().T, sigma.to_numpy().T
 
-    fig = plt.figure()
+    width, _ = plt.rcParams['figure.figsize']
+    fig = plt.figure(figsize=(width, width * len(labels) / 15))
 
-    ax = mu.plot.barh(
-        width=.85, alpha=.66,
-        xerr=sigma, error_kw={'elinewidth': 1.},
-        figsize=(width, height * rows / 15)
-    )
+    space = np.linspace(-.66, .66, mu.shape[0] + 2)[1:-1]
 
-    ax.yaxis.grid(False)
+    for i, shift in enumerate(space):
+        transform = mpl.transforms.Affine2D().translate(0., shift) + plt.gca().transData
+        plt.errorbar(
+            mu[i], labels,
+            xerr=sigma[i],
+            capsize=3., capthick=1.,
+            marker='o', markersize=2.5,
+            linestyle='none', linewidth=1.,
+            transform=transform,
+        )
 
-    if labels is None:
-        ax.get_legend().remove()
-    else:
-        ax.legend(labels)
-
+    plt.grid()
     plt.xlabel(quantity)
     plt.ylabel(None)
 
-    return fig
-
-
-def coverage_plot(filename: str, bins: int = 20) -> mpl.figure.Figure:
-    df = pd.read_csv(filename, usecols=['index', 'mask', 'quantile'], dtype={'mask': str})
-
-    hists = []
-
-    for mask in set(df['mask']):
-        q = df['quantile'][df['mask'] == mask]
-
-        hist, _ = np.histogram(q, bins=bins, range=(0., 1.))
-        hist = hist / len(q)
-
-        hists.append(hist)
-
-    hists = np.stack(hists)
-
-    ticks = np.linspace(0., 1., bins + 1)
-    mu = hists.mean(axis=0)
-    sigma = hists.std(axis=0)
-
-    ticks = np.repeat(ticks, 2)
-    mu = np.hstack([0., np.repeat(mu, 2), 0.])
-    sigma = np.hstack([0., np.repeat(sigma, 2), 0.])
-
-    fig = plt.figure()
-
-    plt.axhline(y=1 / bins, color='k', ls='--')
-
-    plt.plot(ticks, mu)
-    plt.fill_between(ticks, mu - sigma, mu + sigma, alpha=0.25)
-
-    plt.xlabel('Percentile')
-    plt.ylabel('Frequency')
+    if legend is not None:
+        plt.legend(legend)
 
     return fig
 
 
-def visible_spines(ax: mpl.axes.Axes = None) -> None:
-    if ax is None:
-        ax = plt.gca()
+def coverage_plot(df: pd.DataFrame) -> mpl.figure.Figure:
+    width, _ = plt.rcParams['figure.figsize']
+    fig = plt.figure(figsize=(width, width))
 
-    for spine in ax.spines.values():
-        spine.set_visible(True)
+    for mask in df['mask'].unique():
+        p = df['percentile'][df['mask'] == mask]
+        p = np.hstack([0., np.sort(p), 1.])
+
+        cdf = np.linspace(0., 1., len(p))
+
+        plt.step(p, cdf, label=translate(mask))
+
+    plt.plot([0, 1], [0, 1], color='k', ls='--')
+
+    plt.grid()
+    plt.xlabel(r'$p$')
+    plt.ylabel(r'CDF$(p)$')
+    plt.legend(loc='upper left')
+
+    return fig
 
 
-def consistency_plot(
-    files: List[str],
-    cmap: str = 'Reds',
-    background: tuple = (.9, .9, .9),
-) -> None:
-    a, b = files[:2]
-    for i in range(len(a)):
-        if a[i] != b[i]:
-            break
-
-    basename = a[:i]
-
+def consistency_plot(files: List[str], oom: int = -2) -> mpl.figure.Figure:
     dfs = []
 
     for f in files:
@@ -164,76 +154,68 @@ def consistency_plot(
         dfs.append(df.values)
 
     dfs = np.stack(dfs)
-    labels = df.columns
+    labels = [translate(mask) for mask in df.columns]
 
-    mu = dfs.mean(axis=0)
-    sigma = dfs.std(axis=0)
+    mu = dfs[0]
+    mask = ~np.all(np.isnan(dfs), axis=0)
+    mu[mask] = np.nanmean(dfs[:, mask], axis=0)
 
-    vmax = max(np.nanmax(mu), np.nanmax(sigma))
-
-    cmap = plt.get_cmap(cmap).copy()
-    cmap.set_bad(background)
+    cmap = plt.get_cmap('Reds').copy()
+    cmap.set_bad((.9, .9, .9))
 
     rows, cols = mu.shape
-    width, height = plt.rcParams['figure.figsize']
+    width, _ = plt.rcParams['figure.figsize']
 
-    for i, mat in enumerate([mu, sigma]):
-        fig = plt.figure(figsize=(width * rows / 15, height * rows / 15))
+    fig = plt.figure(figsize=(width * rows / 15,) * 2)
 
-        ax = sns.heatmap(
-            mat,
-            cmap=cmap,
-            square=True,
-            vmin=0., vmax=vmax,
-            xticklabels=labels, yticklabels=labels,
-            cbar=i == 1,
-            cbar_kws={'pad': 0.033},
-        )
+    ax = sns.heatmap(
+        mu * (10 ** -oom),
+        vmin=0., vmax=5.,
+        cmap=cmap,
+        annot=True, fmt='.1f', annot_kws={'fontsize': 6.},
+        cbar=False,
+        square=True,
+        xticklabels=labels, yticklabels=labels,
+    )
 
-        visible_spines(ax)
+    at = mpl.offsetbox.AnchoredText(
+        f'$\\times 10^{{{oom}}}$',
+        loc='upper left',
+        prop={'fontsize': plt.rcParams['legend.fontsize']},
+        frameon=False,
+    )
+    ax.add_artist(at)
 
-        if i == 1:
-            visible_spines(ax.collections[-1].colorbar.ax)
-            ax.set_yticks([])
-
-        plt.savefig(basename + ('mean' if i == 0 else 'std') + '.pdf')
-        plt.close()
+    for spine in ax.spines.values():
+        spine.set_visible(True)
 
     return fig
 
 
-def roc_plot(filename: str) -> mpl.figure.Figure:  # Receiver Operating Characteristic
-    with h5py.File(filename) as f:
-        for mask, data in f.items():
-            fp, tp, _ = roc_curve(data[:, 0], data[:, 1], sample_weight=data[:, 2])
-            area = round(auc(fp, tp), 3)
+def roc_plot(data: List[np.ndarray]) -> mpl.figure.Figure:
+    width, _ = plt.rcParams['figure.figsize']
+    fig = plt.figure(figsize=(width, width))
 
-            plt.figure()
+    for x in data:
+        fp, tp, _ = roc_curve(x[:, 0], x[:, 1], sample_weight=x[:, 2])
+        area = auc(fp, tp)
 
-            plt.plot([0, 1], [0, 1], color='k', linestyle='--')
-            plt.step(fp, tp, label=f'ROC (AUC = {area})')
+        plt.step(fp, tp, label='{:.3f}'.format(area))
 
-            plt.axis('square')
+    plt.plot([0, 1], [0, 1], color='k', linestyle='--')
 
-            plt.xlabel('False Positive rate')
-            plt.ylabel('True Positive rate')
-            plt.legend()
+    plt.axis('square')
+    plt.grid()
+    plt.xlabel('False Positive rate')
+    plt.ylabel('True Positive rate')
+    plt.legend(loc='upper left')
 
-            plt.savefig(filename.replace('.h5', f'_{mask}.pdf'))
-            plt.close()
+    return fig
 
 
 ##########
 # Corner #
 ##########
-
-SIMULATORS = {
-    'SLCP': amsi.SLCP,
-    'MLCP': amsi.MLCP,
-    'GW': amsi.GW,
-    'HH': amsi.HH,
-}
-
 
 def search_quantiles(x: Array, quantiles: Vector) -> Vector:
     x = np.sort(x, axis=None)[::-1]
@@ -277,21 +259,20 @@ def corner(
     dims: List[int],
     low: Vector,
     high: Vector,
-    quantiles: Vector = [.3829, .6827, .9545, .9973],
+    quantiles: Vector = [.6827, .9545, .9973],
     labels: List[str] = None,
-    star: Vector = None,
     legend: List[str] = None,
+    star: Vector = None,
+    size: float = 6.4,
 ) -> mpl.figure.Figure:
     D = len(dims)
-
-    fontsize = D * plt.rcParams['font.size'] / 3
-    squaresize = plt.rcParams['figure.figsize'][1] * 0.8
 
     fig, axs = plt.subplots(
         D, D,
         squeeze=False,
-        figsize=(D * squaresize,) * 2,
+        figsize=(size, size),
         sharex='col',
+        gridspec_kw={'wspace': 0., 'hspace': 0.},
     )
 
     quantiles = np.sort(np.asarray(quantiles))
@@ -343,22 +324,34 @@ def corner(
                     if j > 0:
                         ax.sharey(axs[i, j - 1])
 
-            ax.label_outer()
-            ax.set_box_aspect(1.)
-
             # Ticks
-            ax.tick_params(
-                bottom=i == D - 1,
-                left=j == 0,
-            )
+            if i == D - 1:
+                ax.xaxis.set_major_locator(mpl.ticker.MaxNLocator(3, prune='both'))
+                plt.setp(
+                    ax.get_xticklabels(),
+                    rotation=45.,
+                    horizontalalignment='right',
+                    rotation_mode='anchor',
+                )
+            else:
+                ax.xaxis.set_ticks_position('none')
+
+            if i == j:
+                ax.set_yticks([])
+            elif j == 0:
+                ax.yaxis.set_major_locator(mpl.ticker.MaxNLocator(3, prune='both'))
+            else:
+                ax.yaxis.set_ticks_position('none')
 
             # Labels
             if labels is not None:
                 if i == D - 1:
-                    ax.set_xlabel(labels[b], fontsize=fontsize)
+                    ax.set_xlabel(labels[b])
 
                 if j == 0 and i != j:
-                    ax.set_ylabel(labels[a], fontsize=fontsize)
+                    ax.set_ylabel(labels[a])
+
+            ax.label_outer()
 
             # theta*
             if star is not None:
@@ -367,35 +360,36 @@ def corner(
                         star[b], star[a],
                         color='k',
                         marker='*',
-                        markersize=8.,
                     )
                 else:
                     ax.axvline(
                         star[a],
                         color='k',
-                        ls='--',
+                        linestyle='--',
                     )
 
     # Legend
-    cmap = AlphaLinearColormap('black', 0.5)
-
     if star is not None:
-        handles = [mpl.lines.Line2D([], [], color='k', marker='*', markersize=fontsize * 0.8, linestyle='None', label=r'$\theta^*$')]
+        handles = [mpl.lines.Line2D([], [], color='k', marker='*', linestyle='None', label=r'$\theta^*$')]
     else:
         handles = []
+
+    cmap = AlphaLinearColormap('black', 0.5)
 
     handles += [
         mpl.patches.Patch(color=cmap(1 - (p + q) / 2), label=r'{:.1f}\,\%'.format(p * 100))
         for p, q in zip(quantiles[:-1], quantiles[1:])
     ]
 
-    handles += [
-        mpl.lines.Line2D([], [], color=color, linewidth=D / 2, label=label)
-        for color, label in zip(colors, legend)
-        if label is not None
-    ]
+    if legend is not None:
+        handles += [
+            mpl.lines.Line2D([], [], color=color, label=label)
+            for color, label in zip(colors, legend)
+            if label is not None
+        ]
 
-    fig.legend(handles=handles, loc='upper right', fontsize=fontsize, frameon=False)
+    anc = (size - 0.1) / size
+    fig.legend(handles=handles, loc='upper right', bbox_to_anchor=(anc, anc), frameon=False)
 
     return fig
 
@@ -403,88 +397,125 @@ def corner(
 if __name__ == '__main__':
     import argparse
 
-    parser = argparse.ArgumentParser(description='Display results')
+    parser = argparse.ArgumentParser(description='Graphical results')
 
-    parser.add_argument('-loss', nargs='+', default=[], help='training loss file (CSV)')
-    parser.add_argument('-accuracy', nargs='+', default=[], help='accuracy file (CSV)')
-    parser.add_argument('-coverage', nargs='+', default=[], help='coverage file (CSV)')
-    parser.add_argument('-consistency', nargs='+', default=[], help='consistency files (CSV)')
-    parser.add_argument('-roc', nargs='+', default=[], help='prediction file (H5)')
-    parser.add_argument('-corner', nargs='+', default=[], help='corner settings file (JSON)')
+    parser.add_argument('type', choices=['loss', 'accuracy', 'coverage', 'consistency', 'roc', 'corner'])
+    parser.add_argument('input', nargs='+', help='input file(s) (CSV or JSON)')
+    parser.add_argument('-o', '--output', default='products/plots/out.pdf', help='output file (PDF)')
 
-    parser.add_argument('-metrics', nargs='+',
-        default=['probability', 'entropy', 'distance'],
-        choices=['probability', 'entropy', 'distance'],
-        help='accuracy metrics'
-    )
+    parser.add_argument('-simulator', default=None, choices=['SLCP', 'MLCP', 'GW', 'HH'])
 
     args = parser.parse_args()
 
-    # Loss plots
-    for filename in args.loss:
-        loss_plot(filename)
+    # Output
+    if os.path.dirname(args.output):
+        os.makedirs(os.path.dirname(args.output), exist_ok=True)
 
-        plt.savefig(filename.replace('.csv', '.pdf'))
+    # Simulator
+    SIMULATORS = {
+        'SLCP': amsi.SLCP,
+        'MLCP': amsi.MLCP,
+        'GW': amsi.GW,
+        'HH': amsi.HH,
+    }
+
+    if args.simulator is None:
+        file = args.input[0].upper()
+
+        for key in SIMULATORS:
+            if key in file:
+                args.simulator = key
+                break
+
+    simulator = SIMULATORS[args.simulator]()
+
+    # Loss plots
+    if args.type == 'loss':
+        dfs = [
+            pd.read_csv(f)
+            for f in args.input
+        ]
+
+        loss_plot(dfs)
+
+        plt.savefig(args.output)
         plt.close()
 
     # Accuracy plots
-    for filename in args.accuracy:
-        df = pd.read_csv(filename, dtype={'mask': str})
+    if args.type == 'accuracy':
+        dfs = [
+            pd.read_csv(f, dtype={'mask': str})
+            for f in args.input
+        ]
+        df = pd.concat(dfs, ignore_index=True)
 
-        for metric in args.metrics:
+        for metric in ['probability', 'entropy', 'distance']:
             if metric == 'probability':
-                temp = df[['mask', 'total_probability']]
-                labels = None
-                quantity = 'Total probability'
+                bar_plot(df[['mask', 'total_probability']], 'Probability')
             elif metric == 'entropy':
-                temp = df[['mask', 'entropy', 'entropy_truth']]
-                labels = ['prediction', 'ground truth']
-                quantity='Entropy'
+                if 'entropy_truth' in df.columns:
+                    bar_plot(df[['mask', 'entropy', 'entropy_truth']], 'Entropy', ['prediction', 'ground truth'])
+                else:
+                    bar_plot(df[['mask', 'entropy']], 'Entropy')
             elif metric == 'distance':
-                temp = df[['mask', 'wd_truth']]
-                labels = None
-                quantity=r'$W_d$ to ground truth'
+                if 'wd_truth' in df.columns:
+                    bar_plot(df[['mask', 'wd_truth']], r'$W_d$ to ground truth')
+                else:
+                    continue
 
-            bar_plot(temp, labels, quantity)
-
-            plt.savefig(filename.replace('.csv', f'_{metric}.pdf'))
+            plt.savefig(args.output.replace('.pdf', f'_{metric}.pdf'))
             plt.close()
 
     # Coverage plots
-    for filename in args.coverage:
-        coverage_plot(filename)
+    if args.type == 'coverage':
+        dfs = [
+            pd.read_csv(f, usecols=['mask', 'percentile'], dtype={'mask': str})
+            for f in args.input
+        ]
+        df = pd.concat(dfs, ignore_index=True)
 
-        plt.savefig(filename.replace('.csv', '.pdf'))
+        coverage_plot(df)
+
+        plt.savefig(args.output)
         plt.close()
 
     # Consistency plots
-    if len(args.consistency) > 1:
-        consistency_plot(args.consistency)
+    if args.type == 'consistency':
+        consistency_plot(args.input)
+
+        plt.savefig(args.output)
+        plt.close()
 
     # ROC plots
-    for filename in args.roc:
-        roc_plot(filename)
+    if args.type == 'roc':
+        data = {}
+
+        for filename in args.input:
+            with h5py.File(filename) as f:
+                for mask, val in f.items():
+                    val = val[...]
+
+                    if mask in data:
+                        data[mask].append(val)
+                    else:
+                        data[mask] = [val]
+
+        for mask, seq in data.items():
+            roc_plot(seq)
+
+            plt.savefig(args.output.replace('.pdf', f'_{mask}.pdf'))
+            plt.close()
 
     # Corner plots
-    for filename in tqdm.tqdm(args.corner):
-        with open(filename) as g:
-            settings = json.load(g)
+    if args.type == 'corner':
+        ## Settings
+        with open(args.input[0]) as f:
+            settings = json.load(f)
 
         ## Simulator
-        simulator = SIMULATORS[settings['simulator']]()
-
         labels = simulator.labels
         low = simulator.low.numpy()
         high = simulator.high.numpy()
-
-        ## Star
-        if 'star' in settings:
-            samples, index = settings['star']
-
-            with h5py.File(samples) as f:
-                theta_star = f['theta'][index]
-        else:
-            theta_star = None
 
         ## Histograms
         data = []
@@ -492,7 +523,7 @@ if __name__ == '__main__':
         for item in settings['items']:
             data.append({})
 
-            files = [g for f in item['files'] for g in glob.glob(f)]
+            files = [g for f in item['files'] for g in glob.glob(f, recursive=True)]
 
             for f in files:
                 mask, hist = torch.load(f)
@@ -501,7 +532,7 @@ if __name__ == '__main__':
                 pairs = {}
 
                 if item.get('marginalize', False):
-                    for i, a in enumerate(dims):
+                    for i, a in reversed(list(enumerate(dims))):
                         for j, b in enumerate(dims[:i + 1]):
                             h = torchist.marginalize(hist, dim=[i, j], keep=True)
 
@@ -509,6 +540,8 @@ if __name__ == '__main__':
                                 h = h.to_dense()
 
                             pairs[(a, b)] = h
+
+                        hist = torchist.marginalize(hist, dim=i)
                 else:
                     if len(dims) == 1:
                         i = j = dims[0]
@@ -527,21 +560,29 @@ if __name__ == '__main__':
                 h /= h.sum()
 
         ## Legend
-        legend = [item.get('legend', None) for item in settings['items']]
+        legend = settings.get('legend', None)
 
-        if all(l is None for l in legend):
-            legend = None
+        ## Star
+        if 'star' in settings:
+            samples, index = settings['star']
+
+            with h5py.File(samples) as f:
+                star = f['theta'][index]
+        else:
+            star = None
 
         ## Masks
-        for textmask in settings['masks']:
-            dims = amsi.str2mask(textmask).nonzero().squeeze(-1).tolist()
+        if type(settings['masks']) is list:
+            settings['masks'] = {mask: {} for mask in settings['masks']}
+
+        for mask, kwargs in settings['masks'].items():
+            dims = amsi.str2mask(mask).nonzero().squeeze(-1).tolist()
 
             corner(
                 data, dims, low, high,
-                quantiles=settings['quantiles'],
-                labels=labels, star=theta_star,
-                legend=legend,
+                labels=labels, legend=legend,
+                star=star, **kwargs
             )
 
-            plt.savefig(filename.replace('.json', f'_{textmask}.pdf'))
+            plt.savefig(args.output.replace('.pdf', f'_{mask}.pdf'))
             plt.close()
