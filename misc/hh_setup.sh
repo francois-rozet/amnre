@@ -8,7 +8,7 @@ if ! [ -d $CACHE ]; then
     git clone https://github.com/mackelab/IdentifyMechanisticModels_2020 $CACHE
 fi
 
-rm -r amsi/simulators/hhpkg  # /!\ from repository's root
+rm -r amsi/simulators/hhpkg
 cp -r $CACHE/5_hh/model amsi/simulators/hhpkg
 
 cd amsi/simulators/hhpkg

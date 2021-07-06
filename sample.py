@@ -67,24 +67,14 @@ if __name__ == '__main__':
     args.batch_size = min(args.batch_size, args.chunk_size)
 
     # Seed
+    np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
     # Simulator
     if args.simulator == 'GW':
-        if args.reference is None:
-            simulator = amsi.GW(fiducial=True)
-
-            with tqdm(total=args.chunk_size) as tq:
-                _, x, _ = gather_chunk(simulator, args.chunk_size, args.batch_size, noisy=False, progress=tq)
-                x = x.reshape((-1, x.shape[-1]))
-
-            simulator.fiducial = False
-            simulator.basis = amsi.svd_basis(x)
-        else:
-            with h5py.File(args.reference) as f:
-                simulator = amsi.GW(basis=f['basis'][:])
+        simulator = amsi.GW()
     elif args.simulator == 'HH':
-        simulator = amsi.HH()
+        simulator = amsi.HH(seed=args.seed)
     elif args.simulator == 'MLCP':
         simulator = amsi.MLCP()
     else:  # args.simulator == 'SCLP'
@@ -108,10 +98,6 @@ if __name__ == '__main__':
         os.makedirs(os.path.dirname(args.output), exist_ok=True)
 
     with h5py.File(args.output, 'w') as f:
-        ## Special
-        if args.simulator == 'GW':
-            f.create_dataset('basis', data=simulator.basis)
-
         ## Moments
         if args.moments:
             f.create_dataset('mu', data=mu)

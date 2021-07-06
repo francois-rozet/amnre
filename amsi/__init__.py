@@ -12,7 +12,7 @@ from .samplers import TractableSampler, RESampler
 
 from .simulators import Simulator, LTERatio
 from .simulators.slcp import SLCP, MLCP
-from .simulators.gw import GW, svd_basis
+from .simulators.gw import GW
 from .simulators.hh import HH
 
 from .masks import *
