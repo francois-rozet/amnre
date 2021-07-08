@@ -1,10 +1,12 @@
 {
     "items": [
+        {"files": "**/results/hh-amnre-event_0_*.pth"},
         {
             "marginalize": true,
-            "files": "**/results/hh-nre-event_0_11111111.pth"
+            "files": "references/hh-apt.pth"
         }
     ],
+    "legend": ["AMNRE", "APT"],
     "star": ["samples/hh-event.h5", 0],
     "masks": ["11110101"]
 }

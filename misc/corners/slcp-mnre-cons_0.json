@@ -9,15 +9,15 @@
         },
         {
             "marginalize": true,
-            "files": ["**/results/slcp-mnre_0_11000.pth"]
+            "files": "**/results/slcp-mnre_0_11000.pth"
         },
         {
             "marginalize": true,
-            "files": ["**/results/slcp-mnre_0_10100.pth"]
+            "files": "**/results/slcp-mnre_0_10100.pth"
         },
         {
             "marginalize": true,
-            "files": ["**/results/slcp-mnre_0_01100.pth"]
+            "files": "**/results/slcp-mnre_0_01100.pth"
         }
     ],
     "legend": ["marginals", null, null, null],

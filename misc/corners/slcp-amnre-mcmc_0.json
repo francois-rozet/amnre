@@ -1,14 +1,12 @@
 {
     "items": [
+        {"files": "**/results/slcp-amnre_0_*.pth"},
         {
             "marginalize": true,
-            "files": ["**/results/slcp-amnre_0_11111.pth"]
-        },
-        {
-            "files": ["**/results/slcp-amnre_0_*.pth"]
+            "files": "**/results/slcp-amnre_0_11111.pth"
         }
     ],
-    "legend": ["joint (MCMC)", "marginals"],
+    "legend": ["marginals", "joint (MCMC)"],
     "star": ["samples/slcp-test.h5", 0],
     "masks": ["11111"]
 }

@@ -1,0 +1,5 @@
+{
+    "NLL": "**/results/hh-mnre-se_cons.csv",
+    "FL": "**/results/hh-mnre-fl_cons.csv",
+    "PL": "**/results/hh-mnre-pl_cons.csv"
+}

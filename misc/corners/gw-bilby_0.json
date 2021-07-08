@@ -1,0 +1,15 @@
+{
+    "items": [
+        {"files": "**/results/gw-amnre-event_0_*.pth"},
+        {
+            "marginalize": true,
+            "smooth": 1.0,
+            "files": "references/gw-bilby.pth"
+        }
+    ],
+    "legend": ["AMNRE", "Bilby"],
+    "masks": {
+        "110111111001000": {"quantiles": [0.6827, 0.9545]},
+        "000000000000011": {"quantiles": [0.6827, 0.9545], "size": 2.4, "hide_legend": true}
+    }
+}

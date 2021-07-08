@@ -9,15 +9,15 @@
         },
         {
             "marginalize": true,
-            "files": ["**/results/hh-mnre-event_0_11000000.pth"]
+            "files": "**/results/hh-mnre-event_0_11000000.pth"
         },
         {
             "marginalize": true,
-            "files": ["**/results/hh-mnre-event_0_10100000.pth"]
+            "files": "**/results/hh-mnre-event_0_10100000.pth"
         },
         {
             "marginalize": true,
-            "files": ["**/results/hh-mnre-event_0_01100000.pth"]
+            "files": "**/results/hh-mnre-event_0_01100000.pth"
         }
     ],
     "legend": ["marginals", null, null, null],

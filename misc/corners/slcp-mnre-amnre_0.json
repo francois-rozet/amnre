@@ -1,7 +1,7 @@
 {
     "items": [
-        {"files": ["**/results/slcp-mnre_0_*.pth"]},
-        {"files": ["**/results/slcp-amnre_0_*.pth"]}
+        {"files": "**/results/slcp-mnre_0_*.pth"},
+        {"files": "**/results/slcp-amnre_0_*.pth"}
     ],
     "legend": ["MNRE", "AMNRE"],
     "star": ["samples/slcp-test.h5", 0],

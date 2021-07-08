@@ -2,11 +2,11 @@
     "items": [
         {
             "marginalize": true,
-            "files": ["samples/slcp-test_0.pth"]
+            "files": "samples/slcp-test_0.pth"
         },
         {
             "marginalize": true,
-            "files": ["**/results/slcp-nre_0_11111.pth"]
+            "files": "**/results/slcp-nre_0_11111.pth"
         }
     ],
     "legend": ["GT (MCMC)", "NRE (MCMC)"],

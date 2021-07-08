@@ -2,11 +2,11 @@
     "items": [
         {
             "marginalize": true,
-            "files": ["**/results/hh-amnre-event_0_11111111.pth"]
+            "files": "**/results/hh-amnre-event_0_11111111.pth"
         },
         {
             "marginalize": true,
-            "files": ["**/results/hh-amnre-pm-event_0_11111111.pth"]
+            "files": "**/results/hh-amnre-pm-event_0_11111111.pth"
         }
     ],
     "legend": ["uniform", "poisson"],

@@ -14,7 +14,7 @@ import torch
 import torchist
 import tqdm
 
-from itertools import cycle
+from scipy.ndimage import gaussian_filter
 from scipy.stats import kstest
 from sklearn.metrics import roc_curve, auc
 from typing import Dict, List, Tuple, Union
@@ -51,10 +51,9 @@ if mpl.checkdep_usetex(True):
         'text.usetex': True,
     })
 
-
-#########
-# Plots #
-#########
+#############
+# Auxiliary #
+#############
 
 def translate(mask: str) -> str:
     try:
@@ -65,6 +64,16 @@ def translate(mask: str) -> str:
     except:
         return mask
 
+def match(patterns: Union[str, List[str]]) -> List[str]:
+    if type(patterns) is str:
+        patterns = [patterns]
+
+    return [f for p in patterns for f in glob.glob(p, recursive=True)]
+
+
+#########
+# Plots #
+#########
 
 def loss_plot(dfs: List[pd.DataFrame]) -> mpl.figure.Figure:
     fig = plt.figure()
@@ -89,7 +98,7 @@ def loss_plot(dfs: List[pd.DataFrame]) -> mpl.figure.Figure:
     return fig
 
 
-def bar_plot(df: pd.DataFrame, quantity: str = None, legend: List[str] = None) -> mpl.figure.Figure:
+def error_plot(df: pd.DataFrame, legend: List[str], quantity: str = None) -> mpl.figure.Figure:
     df = df.groupby('mask', sort=False)
     mu, sigma = df.mean(), df.std()
 
@@ -97,16 +106,19 @@ def bar_plot(df: pd.DataFrame, quantity: str = None, legend: List[str] = None) -
     mu, sigma = mu.to_numpy().T, sigma.to_numpy().T
 
     width, _ = plt.rcParams['figure.figsize']
-    fig = plt.figure(figsize=(width, width * len(labels) / 15))
 
-    space = np.linspace(-.66, .66, mu.shape[0] + 2)[1:-1]
+    if mu.shape[0] > 2:
+        fig = plt.figure(figsize=(width, width * len(labels) / 12))
+        space = np.linspace(-.5, .5, mu.shape[0] + 2)[1:-1]
+    else:
+        fig = plt.figure(figsize=(width, width * len(labels) / 15))
+        space = np.linspace(-.66, .66, mu.shape[0] + 2)[1:-1]
 
     for i, shift in enumerate(space):
         transform = mpl.transforms.Affine2D().translate(0., shift) + plt.gca().transData
         plt.errorbar(
             mu[i], labels,
             xerr=sigma[i],
-            capsize=3., capthick=1.,
             marker='o', markersize=2.5,
             linestyle='none', linewidth=1.,
             transform=transform,
@@ -115,9 +127,8 @@ def bar_plot(df: pd.DataFrame, quantity: str = None, legend: List[str] = None) -
     plt.grid()
     plt.xlabel(quantity)
     plt.ylabel(None)
-
-    if legend is not None:
-        plt.legend(legend)
+    plt.ylim(bottom=-1, top=len(labels))
+    plt.legend(legend)
 
     return fig
 
@@ -262,6 +273,7 @@ def corner(
     quantiles: Vector = [.6827, .9545, .9973],
     labels: List[str] = None,
     legend: List[str] = None,
+    hide_legend: bool = False,
     star: Vector = None,
     size: float = 6.4,
 ) -> mpl.figure.Figure:
@@ -298,17 +310,20 @@ def corner(
                 else:
                     continue
 
-                x = np.linspace(low[b], high[b], hist.shape[-1])
-                y = np.linspace(low[a], high[a], hist.shape[0])
+                x = np.linspace(low[b], high[b], hist.shape[-1] + 1)
+                y = np.linspace(low[a], high[a], hist.shape[0] + 1)
+                x = x[1:] - (x[1] - x[0]) / 2
+                y = y[1:] - (y[1] - y[0]) / 2
 
                 ## Draw
                 if i == j:
-                    ax.step(x, hist, color=color)
+                    hist = hist / (x[1] - x[0])
+                    ax.step(x, hist, where='mid', color=color)
 
                     _, ymax = ax.get_ylim()
                     ymax = max(ymax, hist.max() * 1.0625)
 
-                    ax.set_xlim(left=x[0], right=x[-1])
+                    ax.set_xlim(left=low[a], right=high[a])
                     ax.set_ylim(bottom=0., top=ymax)
                 else:
                     levels = search_quantiles(hist, quantiles)
@@ -323,6 +338,8 @@ def corner(
 
                     if j > 0:
                         ax.sharey(axs[i, j - 1])
+                    else:
+                        ax.set_ylim(bottom=low[a], top=high[a])
 
             # Ticks
             if i == D - 1:
@@ -388,8 +405,9 @@ def corner(
             if label is not None
         ]
 
-    anc = (size - 0.1) / size
-    fig.legend(handles=handles, loc='upper right', bbox_to_anchor=(anc, anc), frameon=False)
+    if not hide_legend:
+        anc = (size - 0.1) / size
+        fig.legend(handles=handles, loc='upper right', bbox_to_anchor=(anc, anc), frameon=False)
 
     return fig
 
@@ -399,7 +417,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Graphical results')
 
-    parser.add_argument('type', choices=['loss', 'accuracy', 'coverage', 'consistency', 'roc', 'corner'])
+    parser.add_argument('type', choices=['loss', 'error', 'coverage', 'consistency', 'roc', 'corner'])
     parser.add_argument('input', nargs='+', help='input file(s) (CSV or JSON)')
     parser.add_argument('-o', '--output', default='products/plots/out.pdf', help='output file (PDF)')
 
@@ -441,27 +459,51 @@ if __name__ == '__main__':
         plt.savefig(args.output)
         plt.close()
 
-    # Accuracy plots
-    if args.type == 'accuracy':
-        dfs = [
-            pd.read_csv(f, dtype={'mask': str})
-            for f in args.input
-        ]
-        df = pd.concat(dfs, ignore_index=True)
+    # Error plots
+    if args.type == 'error':
+        keys = []
+        dfs = []
+
+        with open(args.input[0]) as f:
+            for key, files in json.load(f).items():
+                dfss = [
+                    pd.read_csv(f, dtype={'mask': str})
+                    for f in match(files)
+                ]
+
+                keys.append(key)
+                dfs.append(pd.concat(dfss, ignore_index=True))
 
         for metric in ['probability', 'entropy', 'distance']:
             if metric == 'probability':
-                bar_plot(df[['mask', 'total_probability']], 'Probability')
+                err = dfs[0][['mask', 'total_probability']]
+
+                for i, df in enumerate(dfs[1:]):
+                    err = err.join(df['total_probability'], rsuffix=f'_{i}')
+
+                error_plot(err, keys, 'Probability')
             elif metric == 'entropy':
-                if 'entropy_truth' in df.columns:
-                    bar_plot(df[['mask', 'entropy', 'entropy_truth']], 'Entropy', ['prediction', 'ground truth'])
+                if 'entropy_truth' in dfs[0].columns:
+                    err = dfs[0][['mask', 'entropy_truth', 'entropy']]
+                    legend = ['GT (MCMC)'] + keys
                 else:
-                    bar_plot(df[['mask', 'entropy']], 'Entropy')
+                    err = dfs[0][['mask', 'entropy']]
+                    legend = keys
+
+                for i, df in enumerate(dfs[1:]):
+                    err = err.join(df['entropy'], rsuffix=f'_{i}')
+
+                error_plot(err, legend, 'Entropy')
             elif metric == 'distance':
-                if 'wd_truth' in df.columns:
-                    bar_plot(df[['mask', 'wd_truth']], r'$W_d$ to ground truth')
+                if 'wd_truth' in dfs[0].columns:
+                     err = dfs[0][['mask', 'wd_truth']]
                 else:
                     continue
+
+                for i, df in enumerate(dfs[1:]):
+                    err = err.join(df['wd_truth'], rsuffix=f'_{i}')
+
+                error_plot(err, keys, r'$W_d$ to GT')
 
             plt.savefig(args.output.replace('.pdf', f'_{metric}.pdf'))
             plt.close()
@@ -523,9 +565,7 @@ if __name__ == '__main__':
         for item in settings['items']:
             data.append({})
 
-            files = [g for f in item['files'] for g in glob.glob(f, recursive=True)]
-
-            for f in files:
+            for f in match(item['files']):
                 mask, hist = torch.load(f)
                 dims = mask.nonzero().squeeze(-1).tolist()
 
@@ -554,6 +594,10 @@ if __name__ == '__main__':
 
                 for (i, j), h in pairs.items():
                     h = h.t().cpu().numpy()
+
+                    if 'smooth' in item:
+                        h = gaussian_filter(h, item['smooth'])
+
                     data[-1][(i, j)] = h + data[-1].get((i, j), 0)
 
             for (i, j), h in data[-1].items():

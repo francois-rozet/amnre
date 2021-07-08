@@ -23,11 +23,17 @@ for file in $files; do
     python ~/amsi/plots.py loss **/models/$file -o plots/${file/.csv/_loss.pdf}
 done
 
-# Accuracy & Consistency
+# Errors
+cp -r ~/amsi/misc/errors .
+
+for file in errors/*.json; do
+    python ~/amsi/plots.py error $file -o ${file/.json/.pdf}
+done
+
+# Consistency
 files=$(find -path "**/results/*_cons.csv" | xargs basename -a | sort -u)
 
 for file in $files; do
-    python ~/amsi/plots.py accuracy **/results/$file -o plots/${file/_cons.csv/.pdf}
     python ~/amsi/plots.py consistency **/results/${file/.csv/}_*.csv -o plots/${file/.csv/.pdf}
 done
 
@@ -46,8 +52,7 @@ for file in $files; do
 done
 
 # Corners
-mkdir -p corners
-cp ~/amsi/misc/corners/* corners
+cp -r ~/amsi/misc/corners .
 
 for file in corners/*.json; do
     python ~/amsi/plots.py corner $file -o ${file/.json/.pdf}
