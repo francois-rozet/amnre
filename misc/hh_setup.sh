@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# conda activate amsi
+# conda activate amnre
 
 CACHE=~/.cache/IdentifyMechanisticModels
 
@@ -8,10 +8,10 @@ if ! [ -d $CACHE ]; then
     git clone https://github.com/mackelab/IdentifyMechanisticModels_2020 $CACHE
 fi
 
-rm -r amsi/simulators/hhpkg
-cp -r $CACHE/5_hh/model amsi/simulators/hhpkg
+rm -r amnre/simulators/hhpkg
+cp -r $CACHE/5_hh/model amnre/simulators/hhpkg
 
-cd amsi/simulators/hhpkg
+cd amnre/simulators/hhpkg
 
 for file in *.py; do
     sed -i 's/import model\./from . import /g' $file

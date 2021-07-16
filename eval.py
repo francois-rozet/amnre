@@ -60,10 +60,10 @@ if __name__ == '__main__':
     # Masks
     theta_size = low.numel()
 
-    if type(model) is amsi.NRE:
+    if type(model) is amnre.NRE:
         masks = torch.tensor([[True] * theta_size])
     else:
-        masks = amsi.list2masks(args.masks, theta_size, args.filter)
+        masks = amnre.list2masks(args.masks, theta_size, args.filter)
 
     # Samples
     for idx in tqdm(range(*args.indices)):
@@ -80,7 +80,7 @@ if __name__ == '__main__':
             pthfile = args.samples.replace('.h5', f'_{idx}.pth')
 
             if not os.path.exists(pthfile):
-                sampler = amsi.TractableSampler(
+                sampler = amnre.TractableSampler(
                     simulator,
                     x_star,
                     batch_size=args.batch_size,
@@ -114,9 +114,9 @@ if __name__ == '__main__':
         z_star = model.encoder(x_star[None])[0]
 
         for mask in masks:
-            textmask = amsi.mask2str(mask)
+            textmask = amnre.mask2str(mask)
 
-            if type(model) is amsi.NRE:
+            if type(model) is amnre.NRE:
                 nre = model
             else:
                 nre = model[mask]
@@ -126,7 +126,7 @@ if __name__ == '__main__':
             ### Hist
             numel = args.bins ** torch.count_nonzero(mask).item()
 
-            sampler = amsi.RESampler(
+            sampler = amnre.RESampler(
                 nre,
                 simulator.masked_prior(mask),
                 z_star,
@@ -240,12 +240,12 @@ if __name__ == '__main__':
             adversary.to(device)
             adversary.eval()
 
-        dataset = amsi.LTEDataset(dataset)
+        dataset = amnre.LTEDataset(dataset)
         length = len(dataset)
 
         with h5py.File(args.output.replace('.csv', '.h5'), 'w') as f:
             for mask in masks:
-                textmask = amsi.mask2str(mask)
+                textmask = amnre.mask2str(mask)
 
                 f.create_dataset(textmask, (length * 2, 3))
 
@@ -257,9 +257,9 @@ if __name__ == '__main__':
                 adv_z = adversary.encoder(x)
 
                 for mask in masks:
-                    textmask = amsi.mask2str(mask)
+                    textmask = amnre.mask2str(mask)
 
-                    if type(model) is amsi.NRE:
+                    if type(model) is amnre.NRE:
                         nre = model
                         adv_nre = adversary
                     else:

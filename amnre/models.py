@@ -202,7 +202,7 @@ class HyperNet(nn.Module):
 class NRE(nn.Module):
     r"""Neural Ratio Estimator (NRE)
 
-    (theta, x) ---> log r(theta | x)
+    (theta, x) ---> log r(theta, x)
 
     Args:
         theta_size: The size of the parameters.
@@ -234,11 +234,11 @@ class NRE(nn.Module):
 class MNRE(nn.Module):
     r"""Marginal Neural Ratio Estimator (MNRE)
 
-                ---> log r(theta_a | x)
+                ---> log r(theta_a, x)
                /
-    (theta, x) ----> log r(theta_b | x)
+    (theta, x) ----> log r(theta_b, x)
                \
-                ---> log r(theta_c | x)
+                ---> log r(theta_c, x)
 
     Args:
         masks: The masks of the considered subsets of the parameters.
@@ -284,7 +284,7 @@ class MNRE(nn.Module):
         else:
             return None
 
-    def __iter__(self) -> Tuple[torch.BoolTensor, nn.Module]:
+    def __iter__(self): # -> Tuple[torch.BoolTensor, nn.Module]
         yield from zip(self.masks, self.nres)
 
     def forward(
@@ -303,7 +303,7 @@ class MNRE(nn.Module):
 class AMNRE(nn.Module):
     r"""Arbitrary Marginal Neural Ratio Estimator (AMNRE)
 
-    (theta, x, mask_a) ---> log r(theta_a | x)
+    (theta, x, mask_a) ---> log r(theta_a, x)
 
     Args:
         theta_size: The size of the parameters.

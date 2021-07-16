@@ -77,7 +77,7 @@ class MetropolisHastings(data.IterableDataset):
 
         return self.log_prob(x).exp()
 
-    def __iter__(self) -> Iterable[torch.Tensor]:
+    def __iter__(self): # -> torch.Tensor
         r""" x_i ~ p(x) """
 
         x = self.first()

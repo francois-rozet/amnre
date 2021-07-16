@@ -19,7 +19,7 @@ from scipy.stats import kstest
 from sklearn.metrics import roc_curve, auc
 from typing import Dict, List, Tuple, Union
 
-import amsi
+import amnre
 
 
 Array = np.ndarray
@@ -431,10 +431,10 @@ if __name__ == '__main__':
 
     # Simulator
     SIMULATORS = {
-        'SLCP': amsi.SLCP,
-        'MLCP': amsi.MLCP,
-        'GW': amsi.GW,
-        'HH': amsi.HH,
+        'SLCP': amnre.SLCP,
+        'MLCP': amnre.MLCP,
+        'GW': amnre.GW,
+        'HH': amnre.HH,
     }
 
     if args.simulator is None:
@@ -621,7 +621,7 @@ if __name__ == '__main__':
             settings['masks'] = {mask: {} for mask in settings['masks']}
 
         for mask, kwargs in settings['masks'].items():
-            dims = amsi.str2mask(mask).nonzero().squeeze(-1).tolist()
+            dims = amnre.str2mask(mask).nonzero().squeeze(-1).tolist()
 
             corner(
                 data, dims, low, high,

@@ -30,7 +30,7 @@ class OnlineDataset(data.IterableDataset):
     def batch_shape(self) -> torch.Size:
         return (self.batch_size,)
 
-    def __iter__(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __iter__(self): # -> Tuple[torch.Tensor, torch.Tensor]
         while True:
             theta, x = self.simulator.sample(self.batch_shape)
 
@@ -92,7 +92,7 @@ class OfflineDataset(data.IterableDataset):
 
         return theta, self.normalize(x)
 
-    def __iter__(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __iter__(self): # -> Tuple[torch.Tensor, torch.Tensor]
         np.random.shuffle(self.chunks)
 
         for chunk in self.chunks:
@@ -144,7 +144,7 @@ class LTEDataset(data.IterableDataset):
     def __len__(self) -> int:
         return len(self.dataset)
 
-    def __iter__(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def __iter__(self): # -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
         for theta, x in self.dataset:
             theta_prime = theta[torch.randperm(len(theta))]
 

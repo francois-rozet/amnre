@@ -11,8 +11,8 @@
 #SBATCH --time=1-00:00:00           # Max execution time
 #
 
-conda activate amsi
-cd ~/amsi
+conda activate amnre
+cd ~/amnre
 
 cp misc/references/apt_eval.py .
 python apt_eval.py

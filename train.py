@@ -16,17 +16,17 @@ from time import time
 from tqdm import tqdm
 from typing import List, Tuple
 
-import amsi
+import amnre
 
 
 def build_encoder(input_size: torch.Size, name: str = None, **kwargs) -> tuple:
     flatten = nn.Flatten(-len(input_size))
 
     if name == 'MLP':
-        net = amsi.MLP(input_size.numel(), **kwargs)
+        net = amnre.MLP(input_size.numel(), **kwargs)
         return nn.Sequential(flatten, net), net.output_size
     elif name == 'ResNet':
-        net = amsi.ResNet(input_size.numel(), **kwargs)
+        net = amnre.ResNet(input_size.numel(), **kwargs)
         return nn.Sequential(flatten, net), net.output_size
     else:
         return flatten, input_size.numel()
@@ -35,22 +35,22 @@ def build_encoder(input_size: torch.Size, name: str = None, **kwargs) -> tuple:
 def build_instance(settings: dict) -> tuple:
     # Simulator
     if settings['simulator'] == 'GW':
-        simulator = amsi.GW()
+        simulator = amnre.GW()
     elif settings['simulator'] == 'HH':
-        simulator = amsi.HH()
+        simulator = amnre.HH()
     elif settings['simulator'] == 'MLCP':
-        simulator = amsi.MLCP()
+        simulator = amnre.MLCP()
     else:  # settings['simulator'] == 'SCLP'
-        simulator = amsi.SLCP()
+        simulator = amnre.SLCP()
 
     simulator.to(settings['device'])
 
     # Dataset
     if settings['samples'] is None:
-        dataset = amsi.OnlineDataset(simulator, batch_size=settings['bs'])
+        dataset = amnre.OnlineDataset(simulator, batch_size=settings['bs'])
         theta, x = simulator.sample()
     else:
-        dataset = amsi.OfflineDataset(settings['samples'], batch_size=settings['bs'], device=settings['device'])
+        dataset = amnre.OfflineDataset(settings['samples'], batch_size=settings['bs'], device=settings['device'])
         theta, x = dataset[0]
 
         if theta is None:
@@ -75,14 +75,14 @@ def build_instance(settings: dict) -> tuple:
 
     if settings['arbitrary']:
         model_args['hyper'] = settings['hyper']
-        model = amsi.AMNRE(theta_size, x_size, **model_args)
+        model = amnre.AMNRE(theta_size, x_size, **model_args)
     else:
-        masks = amsi.list2masks(settings['masks'], theta_size, settings['filter'])
+        masks = amnre.list2masks(settings['masks'], theta_size, settings['filter'])
 
         if len(masks) == 0:
-            model = amsi.NRE(theta_size, x_size, **model_args)
+            model = amnre.NRE(theta_size, x_size, **model_args)
         else:
-            model = amsi.MNRE(masks, x_size, **model_args)
+            model = amnre.MNRE(masks, x_size, **model_args)
 
     ## Weights
     if settings['weights'] is not None:
@@ -177,25 +177,25 @@ if __name__ == '__main__':
             args.masks.append('uniform')
 
         if args.masks[0] == 'poisson':
-            filtr = None if args.filter is None else amsi.str2mask(args.filter)
-            mask_sampler = amsi.PoissonMask(theta_size, filtr=filtr)
+            filtr = None if args.filter is None else amnre.str2mask(args.filter)
+            mask_sampler = amnre.PoissonMask(theta_size, filtr=filtr)
         elif args.masks[0] == 'uniform':
-            mask_sampler = amsi.UniformMask(theta_size)
+            mask_sampler = amnre.UniformMask(theta_size)
         else:
-            masks = amsi.list2masks(args.masks, theta_size, args.filter)
-            mask_sampler = amsi.SelectionMask(masks)
+            masks = amnre.list2masks(args.masks, theta_size, args.filter)
+            mask_sampler = amnre.SelectionMask(masks)
 
         mask_sampler.to(args.device)
 
     # Criterion(s)
     if args.criterion == 'FL':
-        criterion = amsi.FocalWithLogitsLoss()
+        criterion = amnre.FocalWithLogitsLoss()
     elif args.criterion == 'PL':
-        criterion = amsi.PeripheralWithLogitsLoss()
+        criterion = amnre.PeripheralWithLogitsLoss()
     elif args.criterion == 'QS':
-        criterion = amsi.QSWithLogitsLoss()
+        criterion = amnre.QSWithLogitsLoss()
     else:  # args.criterion == 'NLL':
-        criterion = amsi.NLLWithLogitsLoss()
+        criterion = amnre.NLLWithLogitsLoss()
 
     ## Adversarial
     if args.adversary is None:
@@ -218,12 +218,12 @@ if __name__ == '__main__':
         targetnet.to(args.device)
         targetnet.eval()
     elif simulator.tractable:
-        targetnet = amsi.LTERatio(simulator)
+        targetnet = amnre.LTERatio(simulator)
     else:
         targetnet = None
 
-    rr_loss = amsi.RRLoss()
-    sr_loss = amsi.SRLoss()
+    rr_loss = amnre.RRLoss()
+    sr_loss = amnre.SRLoss()
 
     # Optimizer & Scheduler
     optimizer = optim.AdamW(
@@ -233,7 +233,7 @@ if __name__ == '__main__':
         amsgrad=args.amsgrad,
     )
 
-    scheduler = amsi.ReduceLROnPlateau(
+    scheduler = amnre.ReduceLROnPlateau(
         optimizer,
         factor=args.factor,
         patience=args.patience,
@@ -242,10 +242,10 @@ if __name__ == '__main__':
     )
 
     # Datasets
-    trainset = amsi.LTEDataset(dataset)
+    trainset = amnre.LTEDataset(dataset)
 
     if args.valid is not None:
-        validset = amsi.LTEDataset(amsi.OfflineDataset(args.valid, batch_size=args.bs, device=args.device))
+        validset = amnre.LTEDataset(amnre.OfflineDataset(args.valid, batch_size=args.bs, device=args.device))
 
     # Routine
     def routine(dataset, optimize: bool = True) -> Tuple[float, torch.Tensor]:

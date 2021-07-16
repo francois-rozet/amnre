@@ -7,11 +7,11 @@ import torch
 
 from tqdm import tqdm
 
-import amsi
+import amnre
 
 
 def gather_chunk(
-    simulator: amsi.Simulator,
+    simulator: amnre.Simulator,
     chunk_size: int,
     batch_size: int,
     noisy: bool = True,
@@ -72,13 +72,13 @@ if __name__ == '__main__':
 
     # Simulator
     if args.simulator == 'GW':
-        simulator = amsi.GW()
+        simulator = amnre.GW()
     elif args.simulator == 'HH':
-        simulator = amsi.HH(seed=args.seed)
+        simulator = amnre.HH(seed=args.seed)
     elif args.simulator == 'MLCP':
-        simulator = amsi.MLCP()
+        simulator = amnre.MLCP()
     else:  # args.simulator == 'SCLP'
-        simulator = amsi.SLCP()
+        simulator = amnre.SLCP()
 
     # Moments
     if args.moments:

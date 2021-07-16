@@ -12,8 +12,8 @@
 #
 #SBATCH --array=1-5                 # Job array
 
-conda activate amsi
-cd ~/amsi
+conda activate amnre
+cd ~/amnre
 
 SRC=$SCRATCH/samples
 DST=$SCRATCH/$SLURM_ARRAY_TASK_ID

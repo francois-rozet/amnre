@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from amsi import HH
+from amnre import HH
 from delfi.inference import SNPEC
 from delfi.utils import io
 

@@ -11,8 +11,8 @@
 #SBATCH --time=01:00:00             # Max execution time
 #
 
-conda activate amsi
-cd ~/amsi
+conda activate amnre
+cd ~/amnre
 
 SRC=$SCRATCH/samples
 

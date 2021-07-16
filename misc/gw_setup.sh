@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# conda activate amsi
+# conda activate amnre
 
 pip install gwpy pycbc bilby
 
@@ -11,6 +11,6 @@ if ! [ -d $CACHE ]; then
     jupyter nbconvert --to notebook --execute $CACHE/notebooks/GW150914_data.ipynb --inplace --allow-errors
 fi
 
-cp -r $CACHE/lfigw amsi/simulators
-cp -r $CACHE/data/* amsi/simulators/lfigw
+cp -r $CACHE/lfigw amnre/simulators
+cp -r $CACHE/data/* amnre/simulators/lfigw
 cp $CACHE/bilby_runs/bilby_GW150914.py misc/references/bilby_train.py

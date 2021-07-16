@@ -151,22 +151,22 @@ class RRLoss(MSELoss):
 class SRLoss(MSELoss):
     r"""Score Regression (SR) Loss
 
-    (grad log r(theta_a | x) - grad log r(theta | x))^2
+    (grad log r(theta_a, x) - grad log r(theta, x))^2
     """
 
     def forward(
         self,
         theta: torch.Tensor,  # theta
-        ratio: torch.Tensor,  # log r(theta_a | x)
-        target: torch.Tensor,  # log r(theta | x)
+        ratio: torch.Tensor,  # log r(theta_a, x)
+        target: torch.Tensor,  # log r(theta, x)
     ) -> torch.Tensor:
-        score = torch.autograd.grad(  # grad log r(theta_a | x)
+        score = torch.autograd.grad(  # grad log r(theta_a, x)
             ratio, theta,
             torch.ones_like(ratio),
             create_graph=True,
         )[0]
 
-        target = torch.autograd.grad(  # grad log r(theta | x)
+        target = torch.autograd.grad(  # grad log r(theta, x)
             target, theta,
             torch.ones_like(target),
         )[0].detach()

@@ -11,10 +11,10 @@
 #SBATCH --time=3-00:00:00           # Max execution time
 #
 
-conda activate amsi
+conda activate amnre
 cd $SCRATCH
 
-cp -r ~/amsi/misc/references .
+cp -r ~/amnre/misc/references .
 cd references
 
 python bilby_train.py
