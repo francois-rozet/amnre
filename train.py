@@ -217,8 +217,6 @@ if __name__ == '__main__':
         targetnet = load_model(args.distillation)
         targetnet.to(args.device)
         targetnet.eval()
-    elif simulator.tractable:
-        targetnet = amnre.LTERatio(simulator)
     else:
         targetnet = None
 
@@ -260,17 +258,14 @@ if __name__ == '__main__':
 
             if args.arbitrary:
                 if model.hyper is None:
-                    mask = mask_sampler(theta.shape[:1])
+                    masks = mask_sampler(theta.shape[:1])
                 else:
-                    mask = mask_sampler()
-                    model[mask]
-                    adversary[mask]
-                    mask = None
+                    masks = mask_sampler()
 
-                ratio = model(theta, z, mask)
-                ratio_prime = model(theta_prime, z, mask)
+                ratio = model(theta, z, masks)
+                ratio_prime = model(theta_prime, z, masks)
 
-                adv_ratio_prime = adversary(theta_prime, adv_z, mask)
+                adv_ratio_prime = adversary(theta_prime, adv_z, masks)
             else:
                 ratio = model(theta, z)
                 ratio_prime = model(theta_prime, z)
@@ -287,11 +282,36 @@ if __name__ == '__main__':
                 target_ratio = targetnet(theta, target_z)
                 target_ratio_prime = targetnet(theta_prime, target_z)
 
-                l_rr = args.lambdas[0] * rr_loss(ratio_prime, target_ratio_prime)
-                l_irr = args.lambdas[0] * rr_loss(-ratio, -target_ratio)
-                l_sr = args.lambdas[1] * sr_loss(theta, ratio, target_ratio)
+                l = [l]
 
-                l = torch.stack([l, l_rd, l_ird, l_sd])
+                if args.lambdas[0] > 0:
+                    l_rr = args.lambdas[0] * rr_loss(ratio_prime, target_ratio_prime)
+                    l_irr = args.lambdas[0] * rr_loss(-ratio, -target_ratio)
+
+                    l.extend([l_rr, l_irr])
+
+                if args.lambdas[1] > 0:
+                    target_score = sr_loss.score(theta, target_ratio)
+
+                    if type(model) is amnre.MNRE:
+                        score = [
+                            sr_loss.score(theta, ratio[..., i])
+                            for i in range(len(model.masks))
+                        ]
+                        score = torch.stack(score, dim=-2)
+
+                        target_score = target_score[:, None] * model.masks
+                    else:
+                        score = sr_loss.score(theta, ratio)
+
+                        if args.arbitrary:
+                            target_score = target_score * masks
+
+                    l_sr = args.lambdas[1] * sr_loss(score, target_score)
+
+                    l.append(l_sr)
+
+                l = torch.stack(l)
 
             losses.append(l.tolist())
 
@@ -322,7 +342,8 @@ if __name__ == '__main__':
         if args.valid is not None:
             model.eval()
 
-            with torch.no_grad() if targetnet is None else nullcontext():
+            need_grad = targetnet is not None and args.lambdas[1] > 0
+            with nullcontext() if need_grad else torch.no_grad():
                 _, v_losses = routine(validset, False)
 
             model.train()

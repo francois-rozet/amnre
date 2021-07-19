@@ -64,20 +64,3 @@ class Simulator(nn.Module):
         x = self(theta)
 
         return theta, x
-
-
-class LTERatio(nn.Module):
-    r"""Likelihood-to-evidence ratio of tractable simulator"""
-
-    def __init__(self, sim: Simulator):
-        super().__init__()
-
-        assert sim.tractable, f'{type(sim).__name__} is not tractable'
-
-        self.sim = sim
-        self.encoder = nn.Identity()
-
-    def forward(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
-        r""" log p(x | theta) / p(theta) """
-
-        return self.sim.likelihood(theta).log_prob(x) - self.sim.prior.log_prob(theta)

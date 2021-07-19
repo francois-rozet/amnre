@@ -10,7 +10,7 @@ from .models import MLP, ResNet, NRE, MNRE, AMNRE
 from .optim import ReduceLROnPlateau
 from .samplers import TractableSampler, RESampler
 
-from .simulators import Simulator, LTERatio
+from .simulators import Simulator
 from .simulators.slcp import SLCP, MLCP
 from .simulators.gw import GW
 from .simulators.hh import HH
