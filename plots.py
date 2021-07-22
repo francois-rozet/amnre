@@ -128,6 +128,7 @@ def error_plot(df: pd.DataFrame, legend: List[str], quantity: str = None) -> mpl
     plt.xlabel(quantity)
     plt.ylabel(None)
     plt.ylim(bottom=-1, top=len(labels))
+    plt.gca().invert_yaxis()
     plt.legend(legend)
 
     return fig
@@ -567,8 +568,10 @@ if __name__ == '__main__':
 
             for f in match(item['files']):
                 mask, hist = torch.load(f)
-                hist._coalesced_(True)
                 dims = mask.nonzero().squeeze(-1).tolist()
+
+                if hist.is_sparse:
+                    hist._coalesced_(True)
 
                 pairs = {}
 
