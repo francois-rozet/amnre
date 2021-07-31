@@ -1,0 +1,9 @@
+{
+    "items": [
+        {"files": "**/results/slcp-mnre_0_*.pth"},
+        {"files": "**/results/slcp-mnpe_0_*.pth"}
+    ],
+    "legend": ["MNRE", "MNPE"],
+    "star": ["samples/slcp-test.h5", 0],
+    "masks": ["11111"]
+}

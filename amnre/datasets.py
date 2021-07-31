@@ -24,15 +24,11 @@ class OnlineDataset(data.IterableDataset):
         self.noisy = hasattr(self.simulator, 'noise')
 
         self.prior = self.simulator.prior
-        self.batch_size = batch_size
-
-    @property
-    def batch_shape(self) -> torch.Size:
-        return (self.batch_size,)
+        self.batch_shape = (batch_size,)
 
     def __iter__(self): # -> Tuple[torch.Tensor, torch.Tensor]
         while True:
-            theta, x = self.simulator.sample(self.batch_shape)
+            theta, x = self.simulator.joint(self.batch_shape)
 
             if self.noisy:
                 x = x + self.simulator.noise(self.batch_shape)

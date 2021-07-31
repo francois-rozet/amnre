@@ -19,9 +19,9 @@ SRC=$SCRATCH/samples
 DST=$SCRATCH/$SLURM_ARRAY_TASK_ID
 
 MODEL='{"num_layers": 3, "hidden_size": 64, "activation": "ELU"}'
-ENCODER='{"name": "MLP", "num_layers": 7, "hidden_size": 256, "output_size": 256, "activation": "ELU"}'
+EMBED='{"name": "MLP", "num_layers": 7, "hidden_size": 256, "output_size": 256, "activation": "ELU"}'
 
-python train.py -simulator HH -samples $SRC/hh-train.h5 -valid $SRC/hh-valid.h5 -model "$MODEL" -encoder "$ENCODER" -masks =1 =2 -criterion FL -o $DST/models/hh-mnre-fl.pth -device cuda
+python train.py -simulator HH -samples $SRC/hh-train.h5 -valid $SRC/hh-valid.h5 -model "$MODEL" -embedding "$EMBED" -masks =1 =2 -criterion FL -o $DST/models/hh-mnre-fl.pth -device cuda
 
 python eval.py $DST/models/hh-mnre-fl.pth $SRC/hh-event.h5 -masks =1 =2 -o $DST/results/hh-mnre-fl-event.csv
 python eval.py $DST/models/hh-mnre-fl.pth $SRC/hh-test.h5 -masks =1 =2 -indices 0 64 -clean -consistency -o $DST/results/hh-mnre-fl_cons.csv

@@ -18,7 +18,7 @@ cd ~/amnre
 SRC=$SCRATCH/samples
 DST=$SCRATCH/$SLURM_ARRAY_TASK_ID
 
-MODEL='{"num_layers": 5, "hidden_size": 128, "activation": "ELU"}'
+MODEL='{"num_layers": 7, "hidden_size": 256, "activation": "ELU"}'
 
 python train.py -simulator SLCP -samples $SRC/slcp-train.h5 -valid $SRC/slcp-valid.h5 -model "$MODEL" -masks =1 =2 -o $DST/models/slcp-mnre.pth -device cuda
 

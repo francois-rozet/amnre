@@ -9,6 +9,10 @@ from tqdm import tqdm
 
 import amnre
 
+from amnre.simulators.slcp import SLCP
+from amnre.simulators.gw import GW
+from amnre.simulators.hh import HH
+
 
 def gather_chunk(
     simulator: amnre.Simulator,
@@ -21,7 +25,7 @@ def gather_chunk(
     theta_chunk, x_chunk, noise_chunk = [], [], []
 
     for _ in range(0, chunk_size, batch_size):
-        theta, x = simulator.sample((batch_size,))
+        theta, x = simulator.joint((batch_size,))
         theta, x = np.asarray(theta), np.asarray(x)
 
         theta_chunk.append(theta)
@@ -47,7 +51,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Sample from simulator')
 
-    parser.add_argument('-simulator', default='SLCP', choices=['SLCP', 'MLCP', 'GW', 'HH'])
+    parser.add_argument('-simulator', default='SLCP', choices=['SLCP', 'GW', 'HH'])
 
     parser.add_argument('-seed', type=int, default=0, help='random seed')
     parser.add_argument('-samples', type=int, default=2 ** 20, help='number of samples')
@@ -72,13 +76,11 @@ if __name__ == '__main__':
 
     # Simulator
     if args.simulator == 'GW':
-        simulator = amnre.GW()
+        simulator = GW()
     elif args.simulator == 'HH':
-        simulator = amnre.HH(seed=args.seed)
-    elif args.simulator == 'MLCP':
-        simulator = amnre.MLCP()
+        simulator = HH(seed=args.seed)
     else:  # args.simulator == 'SCLP'
-        simulator = amnre.SLCP()
+        simulator = SLCP()
 
     # Moments
     if args.moments:
@@ -114,7 +116,7 @@ if __name__ == '__main__':
             exit()
 
         ## Samples
-        theta, x = simulator.sample()
+        theta, x = simulator.joint()
         theta, x = np.asarray(theta), np.asarray(x)
 
         f.create_dataset(

@@ -3,8 +3,13 @@
         {
             "marginalize": true,
             "files": "**/results/hh-nre-event_0_11111111.pth"
+        },
+        {
+            "marginalize": true,
+            "files": "**/results/hh-npe-event_0_11111111.pth"
         }
     ],
+    "legend": ["NRE (MCMC)", "NPE"],
     "star": ["samples/hh-event.h5", 0],
     "masks": ["11110101"]
 }

@@ -21,6 +21,10 @@ from typing import Dict, List, Tuple, Union
 
 import amnre
 
+from amnre.simulators.slcp import SLCP
+from amnre.simulators.gw import GW
+from amnre.simulators.hh import HH
+
 
 Array = np.ndarray
 Scalar = Union[bool, int, float]
@@ -51,6 +55,7 @@ if mpl.checkdep_usetex(True):
         'text.usetex': True,
     })
 
+
 #############
 # Auxiliary #
 #############
@@ -63,6 +68,7 @@ def translate(mask: str) -> str:
         )
     except:
         return mask
+
 
 def match(patterns: Union[str, List[str]]) -> List[str]:
     if type(patterns) is str:
@@ -78,7 +84,11 @@ def match(patterns: Union[str, List[str]]) -> List[str]:
 def loss_plot(dfs: List[pd.DataFrame]) -> mpl.figure.Figure:
     fig = plt.figure()
 
+    y = []
+
     for df in dfs:
+        y.append(df['v_mean'])
+
         lines = plt.plot(df['epoch'], df['v_mean'])
         color = lines[-1].get_color()
 
@@ -87,6 +97,14 @@ def loss_plot(dfs: List[pd.DataFrame]) -> mpl.figure.Figure:
     plt.grid()
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
+
+    y = np.concatenate(y)
+    gap = y.max() - y.min()
+
+    ymin, ymax = plt.ylim()
+    ymin = max(ymin, y.min() - gap * 0.125)
+    ymax = min(ymax, y.max() + gap * 0.125)
+    plt.ylim(bottom=ymin, top=ymax)
 
     handles = [
         mpl.lines.Line2D([], [], color='k', label='validation'),
@@ -422,7 +440,7 @@ if __name__ == '__main__':
     parser.add_argument('input', nargs='+', help='input file(s) (CSV or JSON)')
     parser.add_argument('-o', '--output', default='products/plots/out.pdf', help='output file (PDF)')
 
-    parser.add_argument('-simulator', default=None, choices=['SLCP', 'MLCP', 'GW', 'HH'])
+    parser.add_argument('-simulator', default=None, choices=['SLCP', 'GW', 'HH'])
 
     args = parser.parse_args()
 
@@ -432,10 +450,9 @@ if __name__ == '__main__':
 
     # Simulator
     SIMULATORS = {
-        'SLCP': amnre.SLCP,
-        'MLCP': amnre.MLCP,
-        'GW': amnre.GW,
-        'HH': amnre.HH,
+        'SLCP': SLCP,
+        'GW': GW,
+        'HH': HH,
     }
 
     if args.simulator is None:

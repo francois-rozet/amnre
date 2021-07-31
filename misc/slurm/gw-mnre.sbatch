@@ -19,10 +19,10 @@ SRC=$SCRATCH/samples
 DST=$SCRATCH/$SLURM_ARRAY_TASK_ID
 
 MODEL='{"num_layers": 3, "hidden_size": 64, "activation": "ELU"}'
-ENCODER='{"name": "ResNet", "num_blocks": 10, "residual_size": 512, "output_size": 512, "activation": "ELU"}'
+EMBED='{"name": "ResNet", "num_blocks": 10, "residual_size": 512, "output_size": 512, "activation": "ELU"}'
 FILTER="110111111001011"
 
-python train.py -simulator GW -samples $SRC/gw-train.h5 -valid $SRC/gw-valid.h5 -model "$MODEL" -encoder "$ENCODER" -masks =1 =2 -filter $FILTER -epochs 512 -per-epoch 1024 -lr 2e-4 -patience 11 -o $DST/models/gw-mnre.pth -device cuda
+python train.py -simulator GW -samples $SRC/gw-train.h5 -valid $SRC/gw-valid.h5 -model "$MODEL" -embedding "$EMBED" -masks =1 =2 -filter $FILTER -epochs 512 -descents 1024 -lr 2e-4 -patience 11 -o $DST/models/gw-mnre.pth -device cuda
 
 python eval.py $DST/models/gw-mnre.pth $SRC/gw-event.h5 -masks =1 =2 -filter $FILTER -o $DST/results/gw-mnre-event.csv
 python eval.py $DST/models/gw-mnre.pth $SRC/gw-test.h5 -masks =1 =2 -filter $FILTER -indices 0 64 -clean -consistency -o $DST/results/gw-mnre_cons.csv

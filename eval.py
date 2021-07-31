@@ -17,11 +17,11 @@ if __name__ == '__main__':
     parser.add_argument('-masks', nargs='+', default=['=1', '=2'], help='marginalization masks')
     parser.add_argument('-filter', default=None, help='mask filter')
 
-    parser.add_argument('-batch-size', type=int, default=2 ** 12, help='batch size')
-    parser.add_argument('-sigma', type=float, default=2e-2, help='relative standard deviation')
-    parser.add_argument('-start', type=int, default=2 ** 6, help='start sample')
-    parser.add_argument('-stop', type=int, default=2 ** 14, help='end sample')
+    parser.add_argument('-bs', type=int, default=2 ** 12, help='batch size')
+    parser.add_argument('-steps', type=int, default=2 ** 14, help='number of steps')
+    parser.add_argument('-burn', type=int, default=2 ** 6, help='burning steps')
     parser.add_argument('-groupby', type=int, default=2 ** 8, help='sample group size')
+    parser.add_argument('-sigma', type=float, default=2e-2, help='relative standard deviation')
 
     parser.add_argument('-bins', type=int, default=100, help='number of bins')
     parser.add_argument('-mcmc-limit', type=int, default=int(1e7), help='MCMC size limit')
@@ -51,7 +51,7 @@ if __name__ == '__main__':
     settings['samples'] = args.samples
 
     # Simulator & Model
-    simulator, dataset, model = build_instance(settings)
+    simulator, dataset, model, adversary = build_instance(settings)
     model.eval()
 
     low, high = simulator.low, simulator.high
@@ -60,7 +60,7 @@ if __name__ == '__main__':
     # Masks
     theta_size = low.numel()
 
-    if type(model) is amnre.NRE:
+    if type(model) in [amnre.NRE, amnre.NPE]:
         masks = torch.tensor([[True] * theta_size])
     else:
         masks = amnre.list2masks(args.masks, theta_size, args.filter)
@@ -80,14 +80,15 @@ if __name__ == '__main__':
             pthfile = args.samples.replace('.h5', f'_{idx}.pth')
 
             if not os.path.exists(pthfile):
-                sampler = amnre.TractableSampler(
-                    simulator,
+                sampler = amnre.LESampler(
+                    simulator.log_prob,
+                    simulator.prior,
                     x_star,
-                    batch_size=args.batch_size,
+                    batch_size=args.bs,
                     sigma=args.sigma * (high - low),
                 )
 
-                samples = sampler(args.start, args.stop, groupby=args.groupby)
+                samples = sampler(args.steps, burn=args.burn, groupby=args.groupby)
                 truth = reduce_histogramdd(
                     samples, args.bins,
                     low, high,
@@ -106,40 +107,49 @@ if __name__ == '__main__':
         else:
             truth = None
 
-        ## MNRE
+        ## Surrogates
         metrics = []
         hists = {}
         divergences = {}
 
-        z_star = model.encoder(x_star[None])[0]
+        y_star = model.embedding(x_star[None])[0]
 
         for mask in masks:
             textmask = amnre.mask2str(mask)
 
-            if type(model) is amnre.NRE:
-                nre = model
+            if type(model) in [amnre.NRE, amnre.NPE]:
+                ne = model
             else:
-                nre = model[mask]
-                if nre is None:
+                ne = model[mask]
+                if ne is None:
                     continue
 
             ### Hist
             numel = args.bins ** torch.count_nonzero(mask).item()
 
-            sampler = amnre.RESampler(
-                nre,
-                simulator.masked_prior(mask),
-                z_star,
-                batch_size=args.batch_size,
-                sigma=args.sigma * (high[mask] - low[mask]),
-            )
+            if type(ne) is amnre.NPE:
+                leakage = True
+                sampler = amnre.PESampler(
+                    ne,
+                    y_star,
+                    batch_size=args.bs,
+                )
+            else:
+                leakage = False
+                sampler = amnre.RESampler(
+                    ne,
+                    simulator.masked_prior(mask),
+                    y_star,
+                    batch_size=args.bs,
+                    sigma=args.sigma * (high[mask] - low[mask]),
+                )
 
             if numel > args.mcmc_limit:
-                samples = sampler(args.start, args.stop, groupby=args.groupby)
+                samples = sampler(args.steps, burn=args.burn, groupby=args.groupby)
                 hist = reduce_histogramdd(
                     samples, args.bins,
                     low, high,
-                    bounded=True,
+                    bounded=not leakage,
                     sparse=True,
                     device='cpu',
                 ).coalesce()
@@ -233,12 +243,8 @@ if __name__ == '__main__':
 
     # Classification
     if args.classify:
-        if settings['adversary'] is None:
-            adversary = Dummy()
-        else:
-            adversary = load_model(settings['adversary'])
-            adversary.to(device)
-            adversary.eval()
+        if type(model) in [amnre.NPE, amnre.MNPE]:
+            model.ratio()
 
         dataset = amnre.LTEDataset(dataset)
         length = len(dataset)
@@ -253,13 +259,13 @@ if __name__ == '__main__':
             for theta, theta_prime, x in dataset:
                 j, k = i + len(x), i + 2 * len(x)
 
-                z = model.encoder(x)
-                adv_z = adversary.encoder(x)
+                y = model.embedding(x)
+                adv_y = adversary.embedding(x)
 
                 for mask in masks:
                     textmask = amnre.mask2str(mask)
 
-                    if type(model) is amnre.NRE:
+                    if type(model) in [amnre.NRE, amnre.NPE]:
                         nre = model
                         adv_nre = adversary
                     else:
@@ -269,12 +275,12 @@ if __name__ == '__main__':
                         if nre is None:
                             continue
 
-                    pred = nre(theta, z).sigmoid().cpu().numpy()
+                    pred = nre(theta[..., mask], y).sigmoid().cpu().numpy()
                     f[textmask][i:j] = np.stack([np.ones_like(pred), pred, np.ones_like(pred)], axis=-1)
 
-                    pred = nre(theta_prime, z).sigmoid().cpu().numpy()
+                    pred = nre(theta_prime[..., mask], y).sigmoid().cpu().numpy()
 
-                    weight = adv_nre(theta_prime, adv_z)
+                    weight = adv_nre(theta_prime[..., mask], adv_y)
                     if weight is None:
                         weight = np.ones_like(pred)
                     else:

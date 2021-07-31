@@ -12,9 +12,7 @@ from torch.distributions import (
     Normal,
 )
 
-from typing import Iterable, List, Union
-
-from .simulators import Simulator
+from typing import List, Union
 
 
 class Transition:
@@ -50,19 +48,13 @@ class NormalTransition(Transition):
         ), 1)
 
 
-class MetropolisHastings(data.IterableDataset):
-    r"""Metropolis-Hastings Algorithm
+class Sampler(data.IterableDataset):
+    r"""Abstract sampler"""
 
-    Wikipedia:
-        https://en.wikipedia.org/wiki/Metropolis%E2%80%93Hastings_algorithm
-    """
-
-    def __init__(self, sigma: torch.Tensor = 1.):
+    def __init__(self):
         super().__init__()
 
-        self.transition = NormalTransition(sigma)  # q(y | x)
-
-    def first(self) -> torch.Tensor:
+    def reference(self) -> torch.Tensor:
         r""" x_0 """
 
         raise NotImplementedError()
@@ -80,52 +72,17 @@ class MetropolisHastings(data.IterableDataset):
     def __iter__(self): # -> torch.Tensor
         r""" x_i ~ p(x) """
 
-        x = self.first()
-
-        # p(x)
-        p_x = self.log_prob(x)
-
-        while True:
-            # y ~ q(y | x)
-            y = self.transition(x)
-
-            # p(y)
-            p_y = self.log_prob(y)
-
-            #     p(y)   q(x | y)
-            # a = ---- * --------
-            #     p(x)   q(y | x)
-            a = p_y - p_x
-
-            if not self.transition.symmetric:
-                a = a + self.transition(y, x) - self.transition(x, y)
-
-            a = a.exp()
-
-            # u in [0; 1]
-            u = torch.rand(a.shape).to(a)
-
-            # if u < a, x <- y
-            # else x <- x
-            mask = u < a
-
-            x = torch.where(mask.unsqueeze(-1), y, x)
-            p_x = torch.where(mask, p_y, p_x)
-
-            yield x
+        raise NotImplementedError()
 
     def __call__(
         self,
-        start: int,
-        stop: int = None,
+        steps: int,
+        burn: int = 0,
         groupby: int = 1,
-    ) -> Iterable[torch.Tensor]:
+    ):  # -> torch.Tensor
         r""" (x_0, x_1, ..., x_n) ~ p(x) """
 
-        if stop is None:
-            start, stop = 0, start
-
-        seq = islice(self, start, stop)
+        seq = islice(self, burn, steps)
 
         if groupby > 1:
             buff = []
@@ -150,7 +107,7 @@ class MetropolisHastings(data.IterableDataset):
     ) -> torch.Tensor:
         r""" p(x) for all x """
 
-        x = self.first()
+        x = self.reference()
 
         # Shape
         B, D = x.shape
@@ -190,62 +147,121 @@ class MetropolisHastings(data.IterableDataset):
         return p
 
 
-class PosteriorSampler(MetropolisHastings):
-    r"""Posterior Sampler"""
+class MetropolisHastings(Sampler):
+    r"""Metropolis-Hastings Algorithm
+
+    Wikipedia:
+        https://en.wikipedia.org/wiki/Metropolis%E2%80%93Hastings_algorithm
+    """
+
+    def __init__(self, sigma: torch.Tensor = 1.):
+        super().__init__()
+
+        self.transition = NormalTransition(sigma)  # q(y | x)
+
+    def __iter__(self): # -> torch.Tensor
+        r""" x_i ~ p(x) """
+
+        x = self.reference()
+
+        # p(x)
+        p_x = self.log_prob(x)
+
+        while True:
+            # y ~ q(y | x)
+            y = self.transition(x)
+
+            # p(y)
+            p_y = self.log_prob(y)
+
+            #     p(y)   q(x | y)
+            # a = ---- * --------
+            #     p(x)   q(y | x)
+            a = p_y - p_x
+
+            if not self.transition.symmetric:
+                a = a + self.transition(y, x) - self.transition(x, y)
+
+            a = a.exp()
+
+            # u in [0; 1]
+            u = torch.rand(a.shape).to(a)
+
+            # if u < a, x <- y
+            # else x <- x
+            mask = u < a
+
+            x = torch.where(mask.unsqueeze(-1), y, x)
+            p_x = torch.where(mask, p_y, p_x)
+
+            yield x
+
+
+class LESampler(MetropolisHastings):
+    r"""Likelihood Estimator Sampler (LESampler)"""
 
     def __init__(
         self,
+        estimator: nn.Module,
         prior: Distribution,
+        x: torch.Tensor,
+        batch_size: int = 1,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+
+        self.estimator = estimator
+        self.prior = prior
+
+        self.batch_shape = (batch_size,)
+        self.x = x.expand(self.batch_shape + x.shape)
+
+    def reference(self) -> torch.Tensor:
+        r""" theta_0 """
+
+        return self.prior.sample(self.batch_shape)
+
+    def log_prob(self, theta: torch.Tensor) -> torch.Tensor:
+        r""" log p(theta, x) """
+
+        return self.estimator(theta, self.x) + self.prior.log_prob(theta)
+
+
+class RESampler(LESampler):
+    r"""Ratio Estimator Sampler (RESampler)"""
+    pass
+
+
+class PESampler(Sampler):
+    r"""Posterior Estimator Sampler (PESampler)"""
+
+    def __init__(
+        self,
+        estimator: nn.Module,
         x: torch.Tensor,
         batch_size: int = 1,
         **kwargs
     ):
         super().__init__(**kwargs)
 
-        self.prior = prior
-        self.batch_shape = torch.Size((batch_size,))
-        self.x = x.expand(self.batch_shape + x.shape)
+        self.estimator = estimator
 
-    def first(self) -> torch.Tensor:
-        r""" theta_0 """
-
-        return self.prior.sample(self.batch_shape)
-
-
-class TractableSampler(PosteriorSampler):
-    r"""Tractable Simulator Sampler"""
-
-    def __init__(
-        self,
-        simulator: Simulator,
-        x: torch.Tensor,
-        **kwargs
-    ):
-        super().__init__(simulator.prior, x, **kwargs)
-
-        self.simulator = simulator
-
-    def log_prob(self, theta: torch.Tensor) -> torch.Tensor:
-        r""" log p(theta, x) """
-
-        return self.simulator.log_prob(theta, self.x)
-
-
-class RESampler(PosteriorSampler):
-    r"""Ratio Estimator Sampler (RESampler)"""
-
-    def __init__(
-        self,
-        re: nn.Module,
-        prior: Distribution,
-        x: torch.Tensor,
-        **kwargs
-    ):
-        super().__init__(prior, x, **kwargs)
-
-        self.re = re
+        self.x = x[None]
+        self.batch_shape = (batch_size,)
+        self.y = x.expand(self.batch_shape + x.shape)
 
     def log_prob(self, theta: torch.Tensor) -> torch.Tensor:
         r""" log p(theta | x) """
 
-        return self.re(theta, self.x) + self.prior.log_prob(theta)
+        return self.estimator(theta, self.y)
+
+    def reference(self) -> torch.Tensor:
+        r""" theta_0 """
+
+        return next(iter(self))
+
+    def __iter__(self): # -> torch.Tensor
+        r""" theta ~ p(theta | x) """
+
+        while True:
+            yield self.estimator.sample(self.x, self.batch_shape)[0]

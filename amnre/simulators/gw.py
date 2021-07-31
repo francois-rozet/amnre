@@ -124,7 +124,7 @@ class GW(Simulator):
 
         return labels
 
-    def forward(self, theta: torch.Tensor) -> torch.Tensor:
+    def sample(self, theta: torch.Tensor, shape: torch.Size = ()) -> torch.Tensor:
         r""" x ~ p(x | theta) """
 
         parameters = theta.view(-1, theta.shape[-1]).numpy().astype(np.float64)
@@ -133,6 +133,9 @@ class GW(Simulator):
         x = np.stack(list(map(self._simulate, parameters)))
         x = self.postprocess(x)
         x = x.reshape(theta.shape[:-1] + x.shape[1:]).view(np.float32)
+
+        if shape:
+            x = np.broadcast_to(x, shape + x.shape)
 
         return torch.from_numpy(x)
 
@@ -169,8 +172,8 @@ class SuperUniform(Uniform):
         self.log_volume = (self.high - self.low).log()
         self.low_, self.high_ = low, high
 
-    def sample(self, sample_shape: torch.Size = ()) -> torch.Tensor:
-        return self._ifunc(super().sample(sample_shape))
+    def sample(self, shape: torch.Size = ()) -> torch.Tensor:
+        return self._ifunc(super().sample(shape))
 
     def log_prob(self, value: torch.Tensor) -> torch.Tensor:
         mask = torch.logical_and(value.ge(self.low_), value.le(self.high_))
@@ -249,25 +252,25 @@ class Joint(Distribution):
             for dist in self.marginals
         )])
 
-    def sample(self, sample_shape: torch.Size = ()):
+    def sample(self, shape: torch.Size = ()):
         x = []
 
         for dist in self.marginals:
-            y = dist.sample(sample_shape)
-            y = y.view(sample_shape + (-1,))
+            y = dist.sample(shape)
+            y = y.view(shape + (-1,))
             x.append(y)
 
         return torch.cat(x, dim=-1)
 
     def log_prob(self, x: torch.Tensor) -> torch.Tensor:
-        sample_shape = x.shape[:-1]
+        shape = x.shape[:-1]
         i, lp = 0, []
 
         for dist in self.marginals:
             j = i + dist.batch_shape.numel()
-            y = x[..., i:j].view(sample_shape + dist.batch_shape)
+            y = x[..., i:j].view(shape + dist.batch_shape)
             i = j
 
-            lp.append(dist.log_prob(y).view(sample_shape + (-1,)))
+            lp.append(dist.log_prob(y).view(shape + (-1,)))
 
         return torch.cat(lp, dim=-1)

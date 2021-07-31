@@ -48,19 +48,19 @@ class Simulator(nn.Module):
             return False
 
     def log_prob(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
-        r""" log p(theta) p(x | theta) """
+        r""" log p(x | theta) """
 
-        return self.prior.log_prob(theta) + self.likelihood(theta).log_prob(x)
+        return self.likelihood(theta).log_prob(x)
 
-    def forward(self, theta: torch.Tensor) -> torch.Tensor:
+    def sample(self, theta: torch.Tensor, shape: torch.Size = ()) -> torch.Tensor:
         r""" x ~ p(x | theta) """
 
-        return self.likelihood(theta).sample()
+        return self.likelihood(theta).sample(shape)
 
-    def sample(self, sample_shape: torch.Size = ()) -> Tuple[torch.Tensor, torch.Tensor]:
+    def joint(self, shape: torch.Size = ()) -> Tuple[torch.Tensor, torch.Tensor]:
         r""" (theta, x) ~ p(theta) p(x | theta) """
 
-        theta = self.prior.sample(sample_shape)
-        x = self(theta)
+        theta = self.prior.sample(shape)
+        x = self.sample(theta)
 
         return theta, x

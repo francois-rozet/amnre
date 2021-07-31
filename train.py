@@ -9,17 +9,18 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from contextlib import nullcontext
 from datetime import datetime
-from itertools import islice
-from time import time
 from tqdm import tqdm
 from typing import List, Tuple
 
 import amnre
 
+from amnre.simulators.slcp import SLCP
+from amnre.simulators.gw import GW
+from amnre.simulators.hh import HH
 
-def build_encoder(input_size: torch.Size, name: str = None, **kwargs) -> tuple:
+
+def build_embedding(input_size: torch.Size, name: str = None, **kwargs) -> tuple:
     flatten = nn.Flatten(-len(input_size))
 
     if name == 'MLP':
@@ -35,20 +36,18 @@ def build_encoder(input_size: torch.Size, name: str = None, **kwargs) -> tuple:
 def build_instance(settings: dict) -> tuple:
     # Simulator
     if settings['simulator'] == 'GW':
-        simulator = amnre.GW()
+        simulator = GW()
     elif settings['simulator'] == 'HH':
-        simulator = amnre.HH()
-    elif settings['simulator'] == 'MLCP':
-        simulator = amnre.MLCP()
+        simulator = HH()
     else:  # settings['simulator'] == 'SCLP'
-        simulator = amnre.SLCP()
+        simulator = SLCP()
 
     simulator.to(settings['device'])
 
     # Dataset
     if settings['samples'] is None:
         dataset = amnre.OnlineDataset(simulator, batch_size=settings['bs'])
-        theta, x = simulator.sample()
+        theta, x = simulator.joint()
     else:
         dataset = amnre.OfflineDataset(settings['samples'], batch_size=settings['bs'], device=settings['device'])
         theta, x = dataset[0]
@@ -66,11 +65,11 @@ def build_instance(settings: dict) -> tuple:
     else:
         moments = torch.zeros(theta_size), torch.ones(theta_size)
 
-    # Model & Encoder
-    encoder, x_size = build_encoder(x.shape, **settings['encoder'])
+    # Model & embedding
+    embedding, x_size = build_embedding(x.shape, **settings['embedding'])
 
     model_args = settings['model'].copy()
-    model_args['encoder'] = encoder
+    model_args['embedding'] = embedding
     model_args['moments'] = moments
 
     if settings['arbitrary']:
@@ -80,9 +79,15 @@ def build_instance(settings: dict) -> tuple:
         masks = amnre.list2masks(settings['masks'], theta_size, settings['filter'])
 
         if len(masks) == 0:
-            model = amnre.NRE(theta_size, x_size, **model_args)
+            if settings['flow']:
+                model = amnre.NPE(theta_size, x_size, prior=simulator.prior, **model_args)
+            else:
+                model = amnre.NRE(theta_size, x_size, **model_args)
         else:
-            model = amnre.MNRE(masks, x_size, **model_args)
+            if settings['flow']:
+                model = amnre.MNPE(masks, x_size, priors=[simulator.masked_prior(m) for m in masks], **model_args)
+            else:
+                model = amnre.MNRE(masks, x_size, **model_args)
 
     ## Weights
     if settings['weights'] is not None:
@@ -91,7 +96,27 @@ def build_instance(settings: dict) -> tuple:
 
     model.to(settings['device'])
 
-    return simulator, dataset, model
+    # Adversary
+    if os.path.isfile(settings['adversary']) and type(model) not in [amnre.NPE, amnre.MNPE]:
+        adversary = load_model(settings['adversary'])
+        adversary.to(settings['device'])
+        adversary.eval()
+
+        if type(adversary) in [amnre.NPE, amnre.MNPE]:
+            adversary.ratio()
+
+        if type(model) is amnre.MNRE:
+            if type(adversary) in [amnre.MNRE, amnre.MNPE]:
+                adversary.filter(model.masks)
+            elif type(adversary) in [amnre.AMNRE]:
+                adversary[model.masks]
+    else:
+        adversary = amnre.Dummy()
+
+    for p in adversary.parameters():
+        p.requires_grad = False
+
+    return simulator, dataset, model, adversary
 
 
 def load_settings(filename: str) -> dict:
@@ -105,20 +130,9 @@ def load_model(filename: str) -> nn.Module:
     settings = load_settings(filename.replace('.pth', '.json'))
     settings['weights'] = filename
 
-    _, _, model = build_instance(settings)
+    _, _, model, _ = build_instance(settings)
 
     return model
-
-
-class Dummy(nn.Module):
-    def __getitem__(self, idx):
-        return None
-
-    def forward(self, *args):
-        return None
-
-    def encoder(self, *args):
-        return None
 
 
 if __name__ == '__main__':
@@ -127,28 +141,27 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train neural ratio estimator')
 
     parser.add_argument('-device', default='cpu', choices=['cpu', 'cuda'])
-    parser.add_argument('-simulator', default='SLCP', choices=['SLCP', 'MLCP', 'GW', 'HH'])
+    parser.add_argument('-simulator', default='SLCP', choices=['SLCP', 'GW', 'HH'])
     parser.add_argument('-samples', default=None, help='samples file (H5)')
     parser.add_argument('-model', type=json.loads, default={}, help='model architecture')
     parser.add_argument('-hyper', type=json.loads, default=None, help='hypernet architecture')
-    parser.add_argument('-encoder', type=json.loads, default={}, help='encoder architecture')
+    parser.add_argument('-embedding', type=json.loads, default={}, help='embedding architecture')
+    parser.add_argument('-flow', default=False, action='store_true', help='normalizing flow')
+    parser.add_argument('-arbitrary', default=False, action='store_true', help='arbitrary architecture')
     parser.add_argument('-masks', nargs='+', default=[], help='marginalzation masks')
     parser.add_argument('-filter', default=None, help='mask filter')
-    parser.add_argument('-arbitrary', default=False, action='store_true', help='arbitrary design')
     parser.add_argument('-weights', default=None, help='warm-start weights')
 
     parser.add_argument('-criterion', default='NLL', choices=['NLL', 'FL', 'PL', 'QS'], help='optimization criterion')
-    parser.add_argument('-adversary', default=None, help='adversary network file (PTH)')
-    parser.add_argument('-distillation', default=None, help='distillation network file (PTH)')
-    parser.add_argument('-lambdas', type=float, nargs=2, default=(1e-3, 1e-3), help='auxiliary losses weights')
+    parser.add_argument('-adversary', default='notafile.pth', help='adversary network file (PTH)')
 
     parser.add_argument('-epochs', type=int, default=256, help='number of epochs')
-    parser.add_argument('-per-epoch', type=int, default=256, help='batches per epoch')
+    parser.add_argument('-descents', type=int, default=256, help='descents per epoch')
     parser.add_argument('-bs', type=int, default=1024, help='batch size')
     parser.add_argument('-lr', type=float, default=1e-3, help='initial learning rate')
     parser.add_argument('-weight-decay', type=float, default=1e-3, help='weight decay')
     parser.add_argument('-amsgrad', type=bool, default=False, help='AMS gradient')
-    parser.add_argument('-patience', type=int, default=5, help='scheduler patience')
+    parser.add_argument('-patience', type=int, default=7, help='scheduler patience')
     parser.add_argument('-threshold', type=float, default=1e-2, help='scheduler threshold')
     parser.add_argument('-factor', type=float, default=5e-1, help='scheduler factor')
     parser.add_argument('-min-lr', type=float, default=1e-6, help='minimum learning rate')
@@ -167,7 +180,7 @@ if __name__ == '__main__':
 
     # Simulator & Model
     settings = vars(args)
-    simulator, dataset, model = build_instance(settings)
+    simulator, dataset, model, adversary = build_instance(settings)
 
     ## Arbitrary masks
     if args.arbitrary:
@@ -186,9 +199,13 @@ if __name__ == '__main__':
             mask_sampler = amnre.SelectionMask(masks)
 
         mask_sampler.to(args.device)
+    else:
+        mask_sampler = None
 
     # Criterion(s)
-    if args.criterion == 'FL':
+    if args.flow:
+        criterion = amnre.NLL()
+    elif args.criterion == 'FL':
         criterion = amnre.FocalWithLogitsLoss()
     elif args.criterion == 'PL':
         criterion = amnre.PeripheralWithLogitsLoss()
@@ -196,32 +213,6 @@ if __name__ == '__main__':
         criterion = amnre.QSWithLogitsLoss()
     else:  # args.criterion == 'NLL':
         criterion = amnre.NLLWithLogitsLoss()
-
-    ## Adversarial
-    if args.adversary is None:
-        adversary = Dummy()
-    elif os.path.isfile(args.adversary):
-        adversary = load_model(args.adversary)
-        adversary.to(args.device)
-        adversary.eval()
-    else:
-        adversary = Dummy()
-
-    for p in adversary.parameters():
-        p.requires_grad = False
-
-    ## Distillation
-    if args.distillation is None:
-        targetnet = None
-    elif os.path.isfile(args.distillation):
-        targetnet = load_model(args.distillation)
-        targetnet.to(args.device)
-        targetnet.eval()
-    else:
-        targetnet = None
-
-    rr_loss = amnre.RRLoss()
-    sr_loss = amnre.SRLoss()
 
     # Optimizer & Scheduler
     optimizer = optim.AdamW(
@@ -245,108 +236,43 @@ if __name__ == '__main__':
     if args.valid is not None:
         validset = amnre.LTEDataset(amnre.OfflineDataset(args.valid, batch_size=args.bs, device=args.device))
 
-    # Routine
-    def routine(dataset, optimize: bool = True) -> Tuple[float, torch.Tensor]:
-        losses = []
-
-        start = time()
-
-        for theta, theta_prime, x in islice(dataset, args.per_epoch):
-            theta.requires_grad = True
-            z = model.encoder(x)
-            adv_z = adversary.encoder(x)
-
-            if args.arbitrary:
-                if model.hyper is None:
-                    masks = mask_sampler(theta.shape[:1])
-                else:
-                    masks = mask_sampler()
-
-                ratio = model(theta, z, masks)
-                ratio_prime = model(theta_prime, z, masks)
-
-                adv_ratio_prime = adversary(theta_prime, adv_z, masks)
-            else:
-                ratio = model(theta, z)
-                ratio_prime = model(theta_prime, z)
-
-                adv_ratio_prime = adversary(theta_prime, adv_z)
-
-            if adv_ratio_prime is not None:
-                adv_ratio_prime = adv_ratio_prime.exp()
-
-            l = criterion(ratio) + criterion(-ratio_prime, adv_ratio_prime)
-
-            if targetnet is not None:
-                target_z = targetnet.encoder(x)
-                target_ratio = targetnet(theta, target_z)
-                target_ratio_prime = targetnet(theta_prime, target_z)
-
-                l = [l]
-
-                if args.lambdas[0] > 0:
-                    l_rr = args.lambdas[0] * rr_loss(ratio_prime, target_ratio_prime)
-                    l_irr = args.lambdas[0] * rr_loss(-ratio, -target_ratio)
-
-                    l.extend([l_rr, l_irr])
-
-                if args.lambdas[1] > 0:
-                    target_score = sr_loss.score(theta, target_ratio)
-
-                    if type(model) is amnre.MNRE:
-                        score = [
-                            sr_loss.score(theta, ratio[..., i])
-                            for i in range(len(model.masks))
-                        ]
-                        score = torch.stack(score, dim=-2)
-
-                        target_score = target_score[:, None] * model.masks
-                    else:
-                        score = sr_loss.score(theta, ratio)
-
-                        if args.arbitrary:
-                            target_score = target_score * masks
-
-                    l_sr = args.lambdas[1] * sr_loss(score, target_score)
-
-                    l.append(l_sr)
-
-                l = torch.stack(l)
-
-            losses.append(l.tolist())
-
-            if optimize:
-                optimizer.zero_grad()
-                l.sum().backward()
-                nn.utils.clip_grad_norm_(model.parameters(), args.clip)
-                optimizer.step()
-
-        end = time()
-
-        return end - start, torch.tensor(losses)
-
     # Training
     stats = []
 
     for epoch in tqdm(range(1, args.epochs + 1)):
-        timing, losses = routine(trainset)
+        model.train()
+        duration, losses = amnre.routine(
+            model,
+            trainset,
+            criterion,
+            optimizer=optimizer,
+            adversary=adversary,
+            descents=args.descents,
+            flow=args.flow,
+            mask_sampler=mask_sampler,
+            clip=args.clip,
+        )
 
         stats.append({
             'epoch': epoch,
-            'time': timing,
+            'time': duration,
             'lr': scheduler.lr,
             'mean': losses.mean(dim=0).tolist(),
             'std': losses.std(dim=0).tolist(),
         })
 
         if args.valid is not None:
-            model.eval()
-
-            need_grad = targetnet is not None and args.lambdas[1] > 0
-            with nullcontext() if need_grad else torch.no_grad():
-                _, v_losses = routine(validset, False)
-
-            model.train()
+            with torch.no_grad():
+                model.eval()
+                _, v_losses = amnre.routine(
+                    model,
+                    validset,
+                    criterion,
+                    optimizer=None,
+                    adversary=adversary,
+                    flow=args.flow,
+                    mask_sampler=mask_sampler,
+                )
 
             stats[-1].update({
                 'v_mean': v_losses.mean(dim=0).tolist(),

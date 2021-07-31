@@ -3,6 +3,8 @@
 import torch
 import torch.nn as nn
 
+from nflows import distributions, flows, transforms, utils
+from torch.distributions import Distribution
 from typing import List, Tuple, Union
 
 
@@ -80,6 +82,7 @@ class MLP(nn.Sequential):
         dropout: float = 0.,
         normalization: str = None,
         linear_first: bool = True,
+        **absorb,
     ):
         activation = ACTIVATIONS[activation]
         selfnorm = normalization == 'self'
@@ -207,7 +210,7 @@ class NRE(nn.Module):
     Args:
         theta_size: The size of the parameters.
         x_size: The size of the (encoded) observations.
-        encoder: An optional encoder for the observations.
+        embedding: An optional embedding for the observations.
 
         **kwargs are transmitted to `MLP`.
     """
@@ -216,18 +219,18 @@ class NRE(nn.Module):
         self,
         theta_size: int,
         x_size: int,
-        encoder: nn.Module = nn.Identity(),
+        embedding: nn.Module = nn.Identity(),
         moments: Tuple[torch.Tensor, torch.Tensor] = None,
         **kwargs,
     ):
         super().__init__()
 
-        self.encoder = encoder
-        self.normalize = nn.Identity() if moments is None else UnitNorm(*moments)
+        self.embedding = embedding
+        self.standardize = nn.Identity() if moments is None else UnitNorm(*moments)
         self.mlp = MLP(theta_size + x_size, 1, **kwargs)
 
     def forward(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
-        theta = self.normalize(theta)
+        theta = self.standardize(theta)
         return self.mlp(torch.cat([theta, x], dim=-1)).squeeze(-1)
 
 
@@ -243,7 +246,7 @@ class MNRE(nn.Module):
     Args:
         masks: The masks of the considered subsets of the parameters.
         x_size: The size of the (encoded) observations.
-        encoder: An optional encoder for the observations.
+        embedding: An optional embedding for the observations.
 
         **kwargs are transmitted to `NRE`.
     """
@@ -252,20 +255,19 @@ class MNRE(nn.Module):
         self,
         masks: torch.BoolTensor,
         x_size: int,
-        encoder: nn.Module = nn.Identity(),
+        embedding: nn.Module = nn.Identity(),
         moments: Tuple[torch.Tensor, torch.Tensor] = None,
         **kwargs,
-    ) -> torch.Tensor:
+    ):
         super().__init__()
 
         self.register_buffer('masks', masks)
-
-        self.encoder = encoder
+        self.embedding = embedding
 
         if moments is not None:
             shift, scale = moments
 
-        self.nres = nn.ModuleList([
+        self.nes = nn.ModuleList([
             NRE(
                 m.sum().item(),
                 x_size,
@@ -276,28 +278,36 @@ class MNRE(nn.Module):
 
     def __getitem__(self, mask: torch.BoolTensor) -> nn.Module:
         mask = mask.to(self.masks)
-        match = torch.all(self.masks == mask, dim=-1)
 
-        if torch.any(match):
-            i = match.byte().argmax().item()
-            return self.nres[i]
-        else:
-            return None
+        for m, ne in iter(self):
+            if (mask == m).all():
+                return ne
+
+        return None
 
     def __iter__(self): # -> Tuple[torch.BoolTensor, nn.Module]
-        yield from zip(self.masks, self.nres)
+        yield from zip(self.masks, self.nes)
+
+    def filter(self, masks: torch.Tensor):
+        nes = []
+
+        for m in masks:
+            nes.append(self[m])
+
+        self.masks = masks
+        self.nes = nn.ModuleList(nes)
 
     def forward(
         self,
         theta: torch.Tensor,
         x: torch.Tensor,
     ) -> torch.Tensor:
-        ratios = []
+        preds = []
 
-        for mask, nre in iter(self):
-            ratios.append(nre(theta[..., mask], x))
+        for mask, ne in iter(self):
+            preds.append(ne(theta[..., mask], x))
 
-        return torch.stack(ratios, dim=-1)
+        return torch.stack(preds, dim=-1)
 
 
 class AMNRE(nn.Module):
@@ -315,15 +325,15 @@ class AMNRE(nn.Module):
         self,
         theta_size: int,
         x_size: int,
-        encoder: nn.Module = nn.Identity(),
+        embedding: nn.Module = nn.Identity(),
         moments: Tuple[torch.Tensor, torch.Tensor] = None,
         hyper: dict = None,
         **kwargs,
     ):
         super().__init__()
 
-        self.encoder = encoder
-        self.normalize = nn.Identity() if moments is None else UnitNorm(*moments)
+        self.embedding = embedding
+        self.standardize = nn.Identity() if moments is None else UnitNorm(*moments)
 
         if hyper is None:
             self.net = NRE(theta_size * 2, x_size, **kwargs)
@@ -361,10 +371,227 @@ class AMNRE(nn.Module):
             blank = theta.new_zeros(theta.shape[:-1] + mask.shape)
             blank[..., mask] = theta
             theta = blank
+        elif mask.dim() > 1 and theta.shape != mask.shape:
+            batch_shape = theta.shape[:-1]
+            stack_shape = batch_shape + mask.shape[:-1]
+            view_shape = batch_shape + (1,) * (mask.dim() - 1)
 
-        theta = self.normalize(theta) * mask
+            theta = theta.view(view_shape + theta.shape[-1:]).expand(stack_shape + theta.shape[-1:])
+            x = x.view(view_shape + x.shape[-1:]).expand(stack_shape + x.shape[-1:])
+
+        theta = self.standardize(theta) * mask
 
         if self.hyper is None:
             theta = torch.cat(torch.broadcast_tensors(theta, mask * 2. - 1.), dim=-1)
 
         return self.net(theta, x)
+
+
+class MAF(flows.Flow):
+    r"""Masked Autoregressive Flow (MAF)
+
+    (x, y) -> log p(x | y)
+    """
+
+    def __init__(
+        self,
+        x_size: int,
+        y_size: int,
+        num_transforms: int = 5,
+        moments: Tuple[torch.Tensor, torch.Tensor] = None,
+        **kwargs,
+    ):
+        kwargs.setdefault('hidden_features', 64)
+        kwargs.setdefault('num_blocks', 1)
+        kwargs.setdefault('use_residual_blocks', False)
+        kwargs.setdefault('use_batch_norm', True)
+
+        transform = []
+
+        if moments is not None:
+            shift, scale = moments
+            transform.append(
+                transforms.PointwiseAffineTransform(shift / scale, 1 / scale)
+            )
+
+        for _ in range(num_transforms):
+            transform.extend([
+                transforms.MaskedAffineAutoregressiveTransform(
+                    features=x_size,
+                    context_features=y_size,
+                    **kwargs
+                ),
+                transforms.RandomPermutation(features=x_size),
+            ])
+
+        transform = transforms.CompositeTransform(transform)
+        distribution = distributions.StandardNormal((x_size,))
+
+        super().__init__(transform, distribution)
+
+
+class NSF(flows.Flow):
+    r"""Neural Spline Flow (NSF)
+
+    (x, y) -> log p(x | y)
+    """
+
+    def __init__(
+        self,
+        x_size: int,
+        y_size: int,
+        num_transforms: int = 5,
+        moments: Tuple[torch.Tensor, torch.Tensor] = None,
+        autoregressive: bool = True,
+        others: dict = {},
+        **kwargs,
+    ):
+        others['tails'] = 'linear'
+
+        kwargs.setdefault('hidden_features', 64)
+        kwargs.setdefault('num_blocks', 1)
+        kwargs.setdefault('use_residual_blocks', False)
+        kwargs.setdefault('use_batch_norm', True)
+
+        if not autoregressive:
+            if kwargs['use_residual_blocks']:
+                net = ResNet
+                kwargs['residual_size'] = kwargs['hidden_features']
+            else:
+                net = MLP
+                kwargs['hidden_size'] = kwargs['hidden_features']
+                kwargs['num_layers'] = kwargs['num_blocks']
+
+            if kwargs['use_batch_norm']:
+                kwargs['normalization'] = 'batch'
+
+        transform = []
+
+        if moments is not None:
+            shift, scale = moments
+            transform.append(
+                PointwiseAffineTransform(shift / scale, 1 / scale)
+            )
+
+        for i in range(num_transforms):
+            if autoregressive:
+                transform.append(
+                    transforms.MaskedPiecewiseRationalQuadraticAutoregressiveTransform(
+                        features=x_size,
+                        context_features=y_size,
+                        **kwargs,
+                        **others,
+                    )
+                )
+            else:
+                transform.append(
+                    transforms.PiecewiseRationalQuadraticCouplingTransform(
+                        mask=utils.create_alternating_binary_mask(x_size, even=(i % 2 == 0)),
+                        transform_net_create_fn=lambda a, b: net(a, b, **kwargs),
+                        **others,
+                    )
+                )
+
+            transform.extend([
+                transforms.RandomPermutation(features=x_size),
+                transforms.LULinear(x_size, identity_init=True),
+            ])
+
+        transform = transforms.CompositeTransform(transform)
+        distribution = distributions.StandardNormal((x_size,))
+
+        super().__init__(transform, distribution)
+
+
+class NPE(nn.Module):
+    r"""Neural Posterior Estimator (NPE)
+
+    (theta, x) ---> log p(theta | x)
+    """
+
+    def __init__(
+        self,
+        theta_size: int,
+        x_size: int,
+        embedding: nn.Module = nn.Identity(),
+        moments: Tuple[torch.Tensor, torch.Tensor] = None,
+        flow: str = 'MAF',
+        prior: Distribution = None,
+        **kwargs,
+    ):
+        super().__init__()
+
+        self.embedding = embedding
+
+        if flow == 'NSF':
+            flow = NSF
+        else:  # flow == 'MAF'
+            flow = MAF
+
+        self.flow = flow(theta_size, x_size, moments=moments, **kwargs)
+
+        self.prior = prior
+        self._ratio = False
+
+    def ratio(self, mode: bool = True):
+        self._ratio = mode
+
+    def forward(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        prob = self.flow.log_prob(theta, x)
+
+        if self._ratio:
+            prob = prob - self.prior.log_prob(theta)
+
+        return prob
+
+    def sample(self, x: torch.Tensor, shape: torch.Size = ()) -> torch.Tensor:
+        r""" theta ~ p(theta | x) """
+
+        size = torch.Size(shape).numel()
+
+        theta = self.flow._sample(size, x)
+        theta = theta.view(x.shape[:-1] + shape + theta.shape[-1:])
+
+        return theta
+
+
+class MNPE(MNRE):
+    r"""Marginal Neural Posterior Estimator (MNPE)
+
+                ---> log p(theta_a | x)
+               /
+    (theta, x) ----> log p(theta_b | x)
+               \
+                ---> log p(theta_c | x)
+    """
+
+    def __init__(
+        self,
+        masks: torch.BoolTensor,
+        x_size: int,
+        embedding: nn.Module = nn.Identity(),
+        moments: Tuple[torch.Tensor, torch.Tensor] = None,
+        priors: List[Distribution] = None,
+        **kwargs,
+    ):
+        super().__init__(masks, x_size, embedding)
+
+        priors = [None] * len(masks) if priors is None else priors
+
+        if moments is not None:
+            shift, scale = moments
+
+        self.nes = nn.ModuleList([
+            NPE(
+                m.sum().item(),
+                x_size,
+                moments=None if moments is None else (shift[m], scale[m]),
+                prior=prior,
+                **kwargs,
+            )
+            for m, prior in zip(self.masks, priors)
+        ])
+
+    def ratio(self, mode: bool = True):
+        for _, ne in iter(self):
+            ne.ratio(mode)

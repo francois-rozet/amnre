@@ -96,14 +96,14 @@ class HH(Simulator):
 
         return labels
 
-    def sample(self, sample_shape: torch.Size = ()) -> Tuple[np.ndarray, np.ndarray]:
+    def joint(self, shape: torch.Size = ()) -> Tuple[np.ndarray, np.ndarray]:
         r""" (theta, x) ~ p(theta) p(x | theta) """
 
-        numel = torch.Size(sample_shape).numel()
+        numel = torch.Size(shape).numel()
         theta, x = self.generator.gen(numel, verbose=False)
 
-        theta = theta.reshape(sample_shape + theta.shape[1:]).astype(np.float32)
-        x = x.reshape(sample_shape + x.shape[1:]).astype(np.float32)
+        theta = theta.reshape(shape + theta.shape[1:]).astype(np.float32)
+        x = x.reshape(shape + x.shape[1:]).astype(np.float32)
 
         return theta, x
 

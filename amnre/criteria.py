@@ -36,6 +36,26 @@ class MSELoss(nn.Module):
         return reduce(e, self.reduction)
 
 
+class NLL(nn.Module):
+    r"""Negative Log-Likelihood (NLL)
+
+    - log(x)
+    """
+
+    def __init__(self, reduction: str = 'batchmean'):
+        super().__init__()
+
+        self.reduction = reduction
+
+    def forward(self, input: torch.Tensor, weight: torch.Tensor = None) -> torch.Tensor:
+        ll = input  # log-likelihood
+
+        if weight is not None:
+            ll = weight * ll
+
+        return -reduce(ll, self.reduction)
+
+
 class NLLWithLogitsLoss(nn.Module):
     r"""Negative Log-Likelihood (NLL) With Logits Loss
 
