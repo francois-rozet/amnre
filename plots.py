@@ -2,7 +2,6 @@
 
 import glob
 import h5py
-import itertools
 import json
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -14,6 +13,7 @@ import torch
 import torchist
 import tqdm
 
+from itertools import repeat
 from scipy.ndimage import gaussian_filter
 from scipy.stats import kstest
 from sklearn.metrics import roc_curve, auc
@@ -116,7 +116,7 @@ def loss_plot(dfs: List[pd.DataFrame]) -> mpl.figure.Figure:
     return fig
 
 
-def error_plot(df: pd.DataFrame, legend: List[str], quantity: str = None) -> mpl.figure.Figure:
+def error_plot(df: pd.DataFrame, legend: List[str] = None, quantity: str = None) -> mpl.figure.Figure:
     df = df.groupby('mask', sort=False)
     mu, sigma = df.mean(), df.std()
 
@@ -222,15 +222,23 @@ def consistency_plot(files: List[str], oom: int = -2) -> mpl.figure.Figure:
     return fig
 
 
-def roc_plot(data: List[np.ndarray]) -> mpl.figure.Figure:
+def roc_plot(predictions: List[np.ndarray], labels: List[str] = None) -> mpl.figure.Figure:
     width, _ = plt.rcParams['figure.figsize']
     fig = plt.figure(figsize=(width, width))
 
-    for x in data:
+    if labels is None:
+        labels = repeat(None)
+
+    for x, label in zip(predictions, labels):
         fp, tp, _ = roc_curve(x[:, 0], x[:, 1], sample_weight=x[:, 2])
         area = auc(fp, tp)
 
-        plt.step(fp, tp, label='{:.3f}'.format(area))
+        if label is None:
+            label = f'{area:.3f}'
+        else:
+            label = f'{label} ({area:.3f})'
+
+        plt.step(fp, tp, label=label)
 
     plt.plot([0, 1], [0, 1], color='k', linestyle='--')
 
@@ -238,7 +246,7 @@ def roc_plot(data: List[np.ndarray]) -> mpl.figure.Figure:
     plt.grid()
     plt.xlabel('False Positive rate')
     plt.ylabel('True Positive rate')
-    plt.legend(loc='upper left')
+    plt.legend(loc='lower right')
 
     return fig
 
@@ -550,18 +558,26 @@ if __name__ == '__main__':
     if args.type == 'roc':
         data = {}
 
-        for filename in args.input:
-            with h5py.File(filename) as f:
-                for mask, val in f.items():
-                    val = val[...]
+        with open(args.input[0]) as f:
+            for key, files in json.load(f).items():
+                for filename in match(files):
+                    with h5py.File(filename) as f:
+                        for mask, pred in f.items():
+                            pred = pred[...]
 
-                    if mask in data:
-                        data[mask].append(val)
-                    else:
-                        data[mask] = [val]
+                            if mask not in data:
+                                data[mask] = {}
 
-        for mask, seq in data.items():
-            roc_plot(seq)
+                            if key in data[mask]:
+                                data[mask][key].append(pred)
+                            else:
+                                data[mask][key] = [pred]
+
+        for mask, curves in data.items():
+            labels = curves.keys()
+            preds = [np.concatenate(pred) for pred in curves.values()]
+
+            roc_plot(preds, labels)
 
             plt.savefig(args.output.replace('.pdf', f'_{mask}.pdf'))
             plt.close()

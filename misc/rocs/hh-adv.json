@@ -1,0 +1,6 @@
+{
+    "MNRE": "**/results/hh-mnre-adv_roc.h5",
+    "MNPE": "**/results/hh-mnpe-adv_roc.h5",
+    "AMNRE-u": "**/results/hh-amnre-adv_roc.h5",
+    "AMNRE-p": "**/results/hh-amnre-pm-adv_roc.h5"
+}

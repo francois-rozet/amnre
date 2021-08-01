@@ -45,10 +45,10 @@ for file in $files; do
 done
 
 # ROC
-files=$(find -path "**/results/*_roc.h5" | xargs basename -a | sort -u)
+cp -r ~/amnre/misc/rocs .
 
-for file in $files; do
-    python ~/amnre/plots.py roc **/results/$file -o plots/${file/.h5/.pdf}
+for file in rocs/*.json; do
+    python ~/amnre/plots.py roc $file -o ${file/.json/.pdf}
 done
 
 # Corners
