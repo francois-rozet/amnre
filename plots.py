@@ -593,24 +593,50 @@ if __name__ == '__main__':
         low = simulator.low.numpy()
         high = simulator.high.numpy()
 
+        ## Masks
+        if type(settings['masks']) is list:
+            settings['masks'] = {mask: {} for mask in settings['masks']}
+
+        present = [amnre.str2mask(mask) for mask in settings['masks'].keys()]
+        present = torch.stack(present)
+        present = torch.any(present, dim=0)
+
         ## Histograms
         data = []
 
         for item in settings['items']:
-            data.append({})
+            item.setdefault('marginalize', False)
+
+            hists = {}
 
             for f in match(item['files']):
                 mask, hist = torch.load(f)
                 dims = mask.nonzero().squeeze(-1).tolist()
+                dims = tuple(dims)
 
-                if hist.is_sparse:
-                    hist._coalesced_(True)
+                if len(dims) <= 2 or item['marginalize']:
+                    if hist.is_sparse:
+                        hist._coalesced_(True)
 
-                pairs = {}
+                    if dims in hists:
+                        hists[dims] = hists[dims] + hist
+                    else:
+                        hists[dims] = hist
 
-                if item.get('marginalize', False):
+            pairs = {}
+
+            for dims, hist in hists.items():
+                hist, _ = torchist.normalize(hist)
+
+                if item['marginalize']:
                     for i, a in reversed(list(enumerate(dims))):
+                        if hist.is_sparse:
+                            hist = hist.coalesce()
+
                         for j, b in enumerate(dims[:i + 1]):
+                            if not (present[a] and present[b]):
+                                continue
+
                             h = torchist.marginalize(hist, dim=[i, j], keep=True)
 
                             if h.is_sparse:
@@ -621,24 +647,21 @@ if __name__ == '__main__':
                         hist = torchist.marginalize(hist, dim=i)
                 else:
                     if len(dims) == 1:
-                        i = j = dims[0]
-                    elif len(dims) == 2:
+                        i, j = dims * 2
+                    else:  # len(dims) == 2
                         j, i = dims
-                    else:
-                        continue
 
                     pairs[(i, j)] = hist
 
-                for (i, j), h in pairs.items():
-                    h = h.t().cpu().numpy()
+            for dims, hist in pairs.items():
+                hist = hist.t().cpu().numpy()
 
-                    if 'smooth' in item:
-                        h = gaussian_filter(h, item['smooth'])
+                if 'smooth' in item:
+                    hist = gaussian_filter(hist, item['smooth'])
 
-                    data[-1][(i, j)] = h + data[-1].get((i, j), 0)
+                pairs[dims] = hist
 
-            for (i, j), h in data[-1].items():
-                h /= h.sum()
+            data.append(pairs)
 
         ## Legend
         legend = settings.get('legend', None)
@@ -652,10 +675,7 @@ if __name__ == '__main__':
         else:
             star = None
 
-        ## Masks
-        if type(settings['masks']) is list:
-            settings['masks'] = {mask: {} for mask in settings['masks']}
-
+        ## Plots
         for mask, kwargs in settings['masks'].items():
             dims = amnre.str2mask(mask).nonzero().squeeze(-1).tolist()
 
