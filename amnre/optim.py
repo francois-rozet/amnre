@@ -50,6 +50,7 @@ def routine(
     criterion: nn.Module,
     optimizer: optim.Optimizer = None,
     adversary: nn.Module = None,
+    inverse: bool = False,
     descents: int = None,
     flow: bool = False,
     mask_sampler: nn.Module = None,
@@ -75,21 +76,24 @@ def routine(
             if mask_sampler is None:
                 ratio = model(theta, y)
                 ratio_prime = model(theta_prime, y)
-                adv_ratio_prime = adversary(theta_prime, adv_y)
+                adv_ratio = adversary(theta if inverse else theta_prime, adv_y)
             else:
                 if model.hyper is None:
-                    masks = mask_sampler(theta.shape[:1])
+                    mask = mask_sampler(theta.shape[:1])
                 else:
-                    masks = mask_sampler()
+                    mask = mask_sampler()
 
-                ratio = model(theta, y, masks)
-                ratio_prime = model(theta_prime, y, masks)
-                adv_ratio_prime = adversary(theta_prime, adv_y, masks)
+                ratio = model(theta, y, mask)
+                ratio_prime = model(theta_prime, y, mask)
+                adv_ratio = adversary(theta if inverse else theta_prime, adv_y, mask)
 
-            if adv_ratio_prime is not None:
-                adv_ratio_prime = adv_ratio_prime.exp()
+            if adv_ratio is not None:
+                adv_ratio = (-adv_ratio if inverse else adv_ratio).exp()
 
-            l = criterion(ratio) + criterion(-ratio_prime, adv_ratio_prime)
+            if inverse:
+                l = criterion(ratio, adv_ratio) + criterion(-ratio_prime)
+            else:
+                l = criterion(ratio) + criterion(-ratio_prime, adv_ratio)
 
         if not l.isfinite():
             continue

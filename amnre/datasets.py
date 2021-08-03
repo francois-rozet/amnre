@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.utils.data as data
 
+from torch.distributions import Distribution
 from typing import Tuple
 
 from .simulators import Simulator
@@ -132,16 +133,20 @@ class OfflineDataset(data.IterableDataset):
 class LTEDataset(data.IterableDataset):
     r"""Likelihood-To-Evidence (LTE) dataset"""
 
-    def __init__(self, dataset: data.IterableDataset):
+    def __init__(self, dataset: data.IterableDataset, prior: Distribution = None):
         super().__init__()
 
         self.dataset = dataset
+        self.prior = prior
 
     def __len__(self) -> int:
         return len(self.dataset)
 
     def __iter__(self): # -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
         for theta, x in self.dataset:
-            theta_prime = theta[torch.randperm(len(theta))]
+            if self.prior is None:
+                theta_prime = theta[torch.randperm(len(theta))]
+            else:
+                theta_prime = self.prior.sample(theta.shape[:-1])
 
             yield theta, theta_prime, x

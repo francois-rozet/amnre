@@ -138,7 +138,7 @@ def load_model(filename: str) -> nn.Module:
 if __name__ == '__main__':
     import argparse
 
-    parser = argparse.ArgumentParser(description='Train neural ratio estimator')
+    parser = argparse.ArgumentParser(description='Training')
 
     parser.add_argument('-device', default='cpu', choices=['cpu', 'cuda'])
     parser.add_argument('-simulator', default='SLCP', choices=['SLCP', 'GW', 'HH'])
@@ -154,6 +154,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-criterion', default='NLL', choices=['NLL', 'FL', 'PL', 'QS'], help='optimization criterion')
     parser.add_argument('-adversary', default='notafile.pth', help='adversary network file (PTH)')
+    parser.add_argument('-inverse', default=False, action='store_true', help='inverse adversary')
 
     parser.add_argument('-epochs', type=int, default=256, help='number of epochs')
     parser.add_argument('-descents', type=int, default=256, help='descents per epoch')
@@ -247,6 +248,7 @@ if __name__ == '__main__':
             criterion,
             optimizer=optimizer,
             adversary=adversary,
+            inverse=args.inverse,
             descents=args.descents,
             flow=args.flow,
             mask_sampler=mask_sampler,
@@ -270,6 +272,7 @@ if __name__ == '__main__':
                     criterion,
                     optimizer=None,
                     adversary=adversary,
+                    inverse=args.inverse,
                     flow=args.flow,
                     mask_sampler=mask_sampler,
                 )

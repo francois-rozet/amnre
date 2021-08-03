@@ -49,7 +49,7 @@ def gather_chunk(
 if __name__ == '__main__':
     import argparse
 
-    parser = argparse.ArgumentParser(description='Sample from simulator')
+    parser = argparse.ArgumentParser(description='Sampling')
 
     parser.add_argument('-simulator', default='SLCP', choices=['SLCP', 'GW', 'HH'])
 

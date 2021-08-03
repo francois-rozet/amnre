@@ -275,16 +275,24 @@ if __name__ == '__main__':
                         if nre is None:
                             continue
 
+                    adv_theta = theta if settings['inverse'] else theta_prime
+                    adv_ratio = adv_nre(adv_theta[..., mask], adv_y)
+
                     pred = nre(theta[..., mask], y).sigmoid().cpu().numpy()
-                    f[textmask][i:j] = np.stack([np.ones_like(pred), pred, np.ones_like(pred)], axis=-1)
+
+                    if settings['inverse'] and adv_ratio is not None:
+                        weight = (-adv_ratio).exp().cpu().numpy()
+                    else:
+                        weight = np.ones_like(pred)
+
+                    f[textmask][i:j] = np.stack([np.ones_like(pred), pred, weight], axis=-1)
 
                     pred = nre(theta_prime[..., mask], y).sigmoid().cpu().numpy()
 
-                    weight = adv_nre(theta_prime[..., mask], adv_y)
-                    if weight is None:
-                        weight = np.ones_like(pred)
+                    if not settings['inverse'] and adv_ratio is not None:
+                        weight = adv_ratio.exp().cpu().numpy()
                     else:
-                        weight = weight.exp().cpu().numpy()
+                        weight = np.ones_like(pred)
 
                     f[textmask][j:k] = np.stack([np.zeros_like(pred), pred, weight], axis=-1)
 
