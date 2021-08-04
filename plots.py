@@ -522,14 +522,18 @@ if __name__ == '__main__':
                 error_plot(err, legend, 'Entropy')
             elif metric == 'distance':
                 if 'wd_truth' in dfs[0].columns:
-                     err = dfs[0][['mask', 'wd_truth']]
+                    colname = 'wd_truth'
+                elif 'emd_truth' in dfs[0].columns:
+                    colname = 'emd_truth'
                 else:
                     continue
 
-                for i, df in enumerate(dfs[1:]):
-                    err = err.join(df['wd_truth'], rsuffix=f'_{i}')
+                err = dfs[0][['mask', colname]]
 
-                error_plot(err, keys, r'$W_d$ to GT')
+                for i, df in enumerate(dfs[1:]):
+                    err = err.join(df[colname], rsuffix=f'_{i}')
+
+                error_plot(err, keys, 'EMD to GT')
 
             plt.savefig(args.output.replace('.pdf', f'_{metric}.pdf'))
             plt.close()

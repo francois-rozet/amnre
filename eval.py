@@ -2,7 +2,7 @@
 
 from train import *
 from torchist import reduce_histogramdd, normalize, marginalize
-from torchist.metrics import entropy, kl_divergence, w_distance
+from torchist.metrics import entropy, kl_divergence, em_distance
 
 
 if __name__ == '__main__':
@@ -25,7 +25,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-bins', type=int, default=100, help='number of bins')
     parser.add_argument('-mcmc-limit', type=int, default=int(1e7), help='MCMC size limit')
-    parser.add_argument('-wd-limit', type=int, default=int(1e4), help='Wasserstein distance size limit')
+    parser.add_argument('-emd-limit', type=int, default=int(1e4), help='EMD size limit')
 
     parser.add_argument('-clean', default=False, action='store_true')
 
@@ -180,10 +180,10 @@ if __name__ == '__main__':
                 metrics[-1]['entropy_truth'] = entropy(target).item()
                 metrics[-1]['kl_truth'] = kl_divergence(target, hist).item()
 
-                if numel <= args.wd_limit:
-                    metrics[-1]['wd_truth'] = w_distance(target, hist).item()
+                if numel <= args.emd_limit:
+                    metrics[-1]['emd_truth'] = em_distance(target, hist).item()
                 else:
-                    metrics[-1]['wd_truth'] = None
+                    metrics[-1]['emd_truth'] = None
 
                 del target
 
@@ -218,7 +218,7 @@ if __name__ == '__main__':
                     dims = m.cumsum(0)[common] - 1
                     q = marginalize(h, dim=dims.tolist(), keep=True)
 
-                    divergences[textmask][key] = w_distance(p, q).item()
+                    divergences[textmask][key] = em_distance(p, q).item()
                     divergences[key][textmask] = divergences[textmask][key]
 
                 hists[textmask] = mask, hist
