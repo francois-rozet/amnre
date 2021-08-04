@@ -11,5 +11,8 @@
     ],
     "legend": ["uniform", "poisson"],
     "star": ["samples/hh-event.h5", 0],
-    "masks": ["11110101"]
+    "masks": {
+        "11100100": {},
+        "11111111": {"quantiles": [0.6827, 0.9545]}
+    }
 }

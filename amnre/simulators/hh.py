@@ -91,7 +91,7 @@ class HH(Simulator):
 
     @cached_property
     def labels(self) -> List[str]:
-        labels = [r'g_{Na}', 'g_K', 'g_l', 'g_M', r'T_{max}', '-V_T', r'\sigma', '-E_l']
+        labels = [r'g_{\mathrm{Na}}', r'g_{\mathrm{K}}', 'g_l', r'g_{\mathrm{M}}', r'\tau_{\max}', '-V_T', r'\sigma', '-E_l']
         labels = [f'${l}$' for l in labels]
 
         return labels
