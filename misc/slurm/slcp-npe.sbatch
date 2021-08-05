@@ -18,8 +18,8 @@ cd ~/amnre
 SRC=$SCRATCH/samples
 DST=$SCRATCH/$SLURM_ARRAY_TASK_ID
 
-MODEL='{"num_transforms": 7, "hidden_features": 64, "num_blocks": 1}'
-EMBED='{"name": "MLP", "num_layers": 7, "hidden_size": 256, "output_size": 256, "activation": "ELU"}'
+MODEL='{"design": "MAF", "num_transforms": 5, "hidden_features": 64, "num_blocks": 2}'
+EMBED='{"name": "MLP", "num_layers": 5, "hidden_size": 128, "output_size": 128, "activation": "ELU"}'
 
 python train.py -simulator SLCP -samples $SRC/slcp-train.h5 -valid $SRC/slcp-valid.h5 -model "$MODEL" -embedding "$EMBED" -flow -o $DST/models/slcp-npe.pth -device cuda
 

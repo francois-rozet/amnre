@@ -391,6 +391,9 @@ class MAF(flows.Flow):
     r"""Masked Autoregressive Flow (MAF)
 
     (x, y) -> log p(x | y)
+
+    References:
+        https://github.com/mackelab/sbi/blob/main/sbi/neural_nets/flow.py
     """
 
     def __init__(
@@ -402,7 +405,8 @@ class MAF(flows.Flow):
         **kwargs,
     ):
         kwargs.setdefault('hidden_features', 64)
-        kwargs.setdefault('num_blocks', 1)
+        kwargs.setdefault('num_blocks', 2)
+        kwargs.setdefault('activation', torch.tanh)
         kwargs.setdefault('use_residual_blocks', False)
         kwargs.setdefault('use_batch_norm', True)
 
@@ -411,10 +415,10 @@ class MAF(flows.Flow):
         if moments is not None:
             shift, scale = moments
             transform.append(
-                transforms.PointwiseAffineTransform(shift / scale, 1 / scale)
+                transforms.PointwiseAffineTransform(-shift / scale, 1 / scale)
             )
 
-        for _ in range(num_transforms):
+        for _ in range(num_transforms if x_size > 1 else 1):
             transform.extend([
                 transforms.MaskedAffineAutoregressiveTransform(
                     features=x_size,
@@ -434,6 +438,9 @@ class NSF(flows.Flow):
     r"""Neural Spline Flow (NSF)
 
     (x, y) -> log p(x | y)
+
+    References:
+        https://github.com/mackelab/sbi/blob/main/sbi/neural_nets/flow.py
     """
 
     def __init__(
@@ -442,58 +449,50 @@ class NSF(flows.Flow):
         y_size: int,
         num_transforms: int = 5,
         moments: Tuple[torch.Tensor, torch.Tensor] = None,
-        autoregressive: bool = True,
-        others: dict = {},
+        others: dict = {'tails': 'linear'},
         **kwargs,
     ):
-        others['tails'] = 'linear'
-
         kwargs.setdefault('hidden_features', 64)
-        kwargs.setdefault('num_blocks', 1)
+        kwargs.setdefault('num_blocks', 2)
         kwargs.setdefault('use_residual_blocks', False)
         kwargs.setdefault('use_batch_norm', True)
 
-        if not autoregressive:
-            if kwargs['use_residual_blocks']:
-                net = ResNet
-                kwargs['residual_size'] = kwargs['hidden_features']
-            else:
-                net = MLP
-                kwargs['hidden_size'] = kwargs['hidden_features']
-                kwargs['num_layers'] = kwargs['num_blocks']
+        if kwargs['use_residual_blocks']:
+            net = ResNet
+            kwargs['residual_size'] = kwargs['hidden_features']
+        else:
+            net = MLP
+            kwargs['hidden_size'] = kwargs['hidden_features']
+            kwargs['num_layers'] = kwargs['num_blocks']
 
-            if kwargs['use_batch_norm']:
-                kwargs['normalization'] = 'batch'
+        if kwargs['use_batch_norm']:
+            kwargs['normalization'] = 'batch'
+
+        class ContextNet(nn.Module):
+            def __init__(self, a: int, b: int):
+                super().__init__()
+
+                self.hidden_features = kwargs['hidden_features']
+                self.net = net(a + y_size, b, **kwargs)
+
+            def forward(self, input: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
+                return self.net(torch.cat([input, context], dim=-1))
 
         transform = []
 
         if moments is not None:
             shift, scale = moments
             transform.append(
-                PointwiseAffineTransform(shift / scale, 1 / scale)
+                transforms.PointwiseAffineTransform(-shift / scale, 1 / scale)
             )
 
-        for i in range(num_transforms):
-            if autoregressive:
-                transform.append(
-                    transforms.MaskedPiecewiseRationalQuadraticAutoregressiveTransform(
-                        features=x_size,
-                        context_features=y_size,
-                        **kwargs,
-                        **others,
-                    )
-                )
-            else:
-                transform.append(
-                    transforms.PiecewiseRationalQuadraticCouplingTransform(
-                        mask=utils.create_alternating_binary_mask(x_size, even=(i % 2 == 0)),
-                        transform_net_create_fn=lambda a, b: net(a, b, **kwargs),
-                        **others,
-                    )
-                )
-
+        for i in range(num_transforms if x_size > 1 else 1):
             transform.extend([
-                transforms.RandomPermutation(features=x_size),
+                transforms.PiecewiseRationalQuadraticCouplingTransform(
+                    mask=utils.create_alternating_binary_mask(x_size, even=(i % 2 == 0)),
+                    transform_net_create_fn=ContextNet,
+                    **others,
+                ),
                 transforms.LULinear(x_size, identity_init=True),
             ])
 
@@ -515,7 +514,7 @@ class NPE(nn.Module):
         x_size: int,
         embedding: nn.Module = nn.Identity(),
         moments: Tuple[torch.Tensor, torch.Tensor] = None,
-        flow: str = 'MAF',
+        design: str = 'MAF',
         prior: Distribution = None,
         **kwargs,
     ):
@@ -523,7 +522,7 @@ class NPE(nn.Module):
 
         self.embedding = embedding
 
-        if flow == 'NSF':
+        if design == 'NSF':
             flow = NSF
         else:  # flow == 'MAF'
             flow = MAF

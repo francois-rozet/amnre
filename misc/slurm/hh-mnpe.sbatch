@@ -18,8 +18,8 @@ cd ~/amnre
 SRC=$SCRATCH/samples
 DST=$SCRATCH/$SLURM_ARRAY_TASK_ID
 
-MODEL='{"num_transforms": 7, "hidden_features": 64, "num_blocks": 1}'
-EMBED='{"name": "MLP", "num_layers": 7, "hidden_size": 256, "output_size": 256, "activation": "ELU"}'
+MODEL='{"design": "MAF", "num_transforms": 5, "hidden_features": 64, "num_blocks": 2}'
+EMBED='{"name": "MLP", "num_layers": 5, "hidden_size": 128, "output_size": 128, "activation": "ELU"}'
 ADV='{"num_layers": 11, "hidden_size": 512, "activation": "ELU"}'
 
 python train.py -simulator HH -samples $SRC/hh-train.h5 -valid $SRC/hh-valid.h5 -model "$MODEL" -embedding "$EMBED" -flow -masks =1 =2 11100100 11111111 -o $DST/models/hh-mnpe.pth -device cuda
