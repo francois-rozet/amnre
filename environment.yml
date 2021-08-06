@@ -16,3 +16,4 @@ dependencies:
     - torch==1.8.1
     - torchist==0.1.7
     - tqdm==4.59.0
+    - UMNN==1.68

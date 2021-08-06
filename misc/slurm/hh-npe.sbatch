@@ -18,9 +18,8 @@ cd ~/amnre
 SRC=$SCRATCH/samples
 DST=$SCRATCH/$SLURM_ARRAY_TASK_ID
 
-MODEL='{"design": "MAF", "num_transforms": 5, "hidden_features": 64, "num_blocks": 2}'
-EMBED='{"name": "MLP", "num_layers": 5, "hidden_size": 128, "output_size": 128, "activation": "ELU"}'
+MODEL='{"design": "MAF", "num_transforms": 7, "hidden_features": 128, "num_blocks": 3}'
 
-python train.py -simulator HH -samples $SRC/hh-train.h5 -valid $SRC/hh-valid.h5 -model "$MODEL" -embedding "$EMBED" -flow -o $DST/models/hh-npe.pth -device cuda
+python train.py -simulator HH -samples $SRC/hh-train.h5 -valid $SRC/hh-valid.h5 -model "$MODEL" -flow -o $DST/models/hh-npe.pth -device cuda
 
 python eval.py $DST/models/hh-npe.pth $SRC/hh-event.h5 -steps 1024 -burn 0 -o $DST/results/hh-npe-event.csv

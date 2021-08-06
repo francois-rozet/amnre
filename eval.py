@@ -19,7 +19,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-bs', type=int, default=2 ** 12, help='batch size')
     parser.add_argument('-steps', type=int, default=2 ** 14, help='number of steps')
-    parser.add_argument('-burn', type=int, default=2 ** 6, help='burning steps')
+    parser.add_argument('-burn', type=int, default=2 ** 8, help='burning steps')
     parser.add_argument('-groupby', type=int, default=2 ** 8, help='sample group size')
     parser.add_argument('-sigma', type=float, default=2e-2, help='relative standard deviation')
 
