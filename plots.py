@@ -158,11 +158,10 @@ def coverage_plot(df: pd.DataFrame) -> mpl.figure.Figure:
 
     for mask in df['mask'].unique():
         p = df['percentile'][df['mask'] == mask]
-        p = np.hstack([0., np.sort(p), 1.])
+        p = np.hstack([0, np.sort(p), 1])
+        cdf = np.linspace(0, 1, len(p))
 
-        cdf = np.linspace(0., 1., len(p))
-
-        plt.step(p, cdf, label=translate(mask))
+        plt.plot(p, cdf, label=translate(mask))
 
     plt.plot([0, 1], [0, 1], color='k', ls='--')
 
@@ -222,23 +221,39 @@ def consistency_plot(files: List[str], oom: int = -2) -> mpl.figure.Figure:
     return fig
 
 
-def roc_plot(predictions: List[np.ndarray], labels: List[str] = None) -> mpl.figure.Figure:
+def roc_plot(predictions: List[List[np.ndarray]], labels: List[str] = None, bins: int = 128) -> mpl.figure.Figure:
     width, _ = plt.rcParams['figure.figsize']
     fig = plt.figure(figsize=(width, width))
 
     if labels is None:
         labels = repeat(None)
 
-    for x, label in zip(predictions, labels):
-        fp, tp, _ = roc_curve(x[:, 0], x[:, 1], sample_weight=x[:, 2])
-        area = auc(fp, tp)
+    ticks = np.linspace(0, 1, bins + 1)
+
+    for p, label in zip(predictions, labels):
+        tps, areas = [], []
+
+        for x in p:
+            fp, tp, _ = roc_curve(x[:, 0], x[:, 1], sample_weight=x[:, 2])
+
+            areas.append(auc(fp, tp))
+
+            tp = np.interp(ticks, fp, tp)
+            tp[0], tp[-1] = 0, 1
+
+            tps.append(tp)
+
+        tp = np.stack(tps).mean(axis=0)
+        areas = np.array(areas)
+
+        temp = r'${:.3f} \pm {:.3f}$'.format(areas.mean(), areas.std())
 
         if label is None:
-            label = f'{area:.3f}'
+            label = temp
         else:
-            label = f'{label} ({area:.3f})'
+            label = f'{label} ({temp})'
 
-        plt.step(fp, tp, label=label)
+        plt.step(ticks, tp, label=label)
 
     plt.plot([0, 1], [0, 1], color='k', linestyle='--')
 
@@ -282,7 +297,7 @@ class NonLinearColormap(mpl.colors.Colormap):
         levels = np.asarray(levels)
 
         self.dom = (levels - levels.min()) / (levels.max() - levels.min())
-        self.img = np.linspace(0., 1., len(levels))
+        self.img = np.linspace(0, 1, len(levels))
 
     def __getattr__(self, attr: str):
         return getattr(self.cmap, attr)
@@ -579,7 +594,7 @@ if __name__ == '__main__':
 
         for mask, curves in data.items():
             labels = curves.keys()
-            preds = [np.concatenate(pred) for pred in curves.values()]
+            preds = curves.values()
 
             roc_plot(preds, labels)
 
