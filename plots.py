@@ -152,7 +152,7 @@ def error_plot(df: pd.DataFrame, legend: List[str] = None, quantity: str = None)
     return fig
 
 
-def coverage_plot(df: pd.DataFrame) -> mpl.figure.Figure:
+def pp_plot(df: pd.DataFrame) -> mpl.figure.Figure:
     width, _ = plt.rcParams['figure.figsize']
     fig = plt.figure(figsize=(width, width))
 
@@ -459,7 +459,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Graphical results')
 
-    parser.add_argument('type', choices=['loss', 'error', 'coverage', 'consistency', 'roc', 'corner'])
+    parser.add_argument('type', choices=['loss', 'error', 'calibration', 'consistency', 'roc', 'corner'])
     parser.add_argument('input', nargs='+', help='input file(s) (CSV or JSON)')
     parser.add_argument('-o', '--output', default='products/plots/out.pdf', help='output file (PDF)')
 
@@ -553,15 +553,15 @@ if __name__ == '__main__':
             plt.savefig(args.output.replace('.pdf', f'_{metric}.pdf'))
             plt.close()
 
-    # Coverage plots
-    if args.type == 'coverage':
+    # Calibration plots
+    if args.type == 'calibration':
         dfs = [
             pd.read_csv(f, usecols=['mask', 'percentile'], dtype={'mask': str})
             for f in args.input
         ]
         df = pd.concat(dfs, ignore_index=True)
 
-        coverage_plot(df)
+        pp_plot(df)
 
         plt.savefig(args.output)
         plt.close()

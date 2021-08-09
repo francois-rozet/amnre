@@ -26,4 +26,4 @@ python train.py -simulator GW -samples $SRC/gw-train.h5 -valid $SRC/gw-valid.h5 
 
 python eval.py $DST/models/gw-amnre.pth $SRC/gw-event.h5 -masks =1 =2 -filter $FILTER -o $DST/results/gw-amnre-event.csv
 python eval.py $DST/models/gw-amnre.pth $SRC/gw-test.h5 -masks =1 =2 -filter $FILTER -indices 0 64 -clean -consistency -o $DST/results/gw-amnre_cons.csv
-python eval.py $DST/models/gw-amnre.pth $SRC/gw-test.h5 -masks =1 -filter $FILTER -indices 0 8192 -bins 256 -clean -coverage -o $DST/results/gw-amnre_cov.csv
+python eval.py $DST/models/gw-amnre.pth $SRC/gw-test.h5 -masks =1 -filter $FILTER -indices 0 8192 -bins 256 -clean -calibration -o $DST/results/gw-amnre_cal.csv

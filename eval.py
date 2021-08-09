@@ -30,7 +30,7 @@ if __name__ == '__main__':
     parser.add_argument('-clean', default=False, action='store_true')
 
     parser.add_argument('-accuracy', default=False, action='store_true')
-    parser.add_argument('-coverage', default=False, action='store_true')
+    parser.add_argument('-calibration', default=False, action='store_true')
     parser.add_argument('-consistency', default=False, action='store_true')
 
     parser.add_argument('-classify', default=False, action='store_true')
@@ -187,8 +187,8 @@ if __name__ == '__main__':
 
                 del target
 
-            #### Coverage
-            if args.coverage and theta_star is not None:
+            #### Calibration
+            if args.calibration and theta_star is not None:
                 p = hist[tuple(index_star[mask])]
 
                 if hist.is_sparse:

@@ -40,12 +40,12 @@ for file in $files; do
     python ~/amnre/plots.py consistency **/results/${file/.csv/}_*.csv -o plots/${file/.csv/.pdf}
 done
 
-# Coverage
-files=$(find -path "**/results/*_cov.csv" | xargs basename -a | sort -u)
+# Calibration
+files=$(find . \( -path "**/results/*_cal.csv" -or -path "**/results/*_cov.csv" \) | xargs basename -a | sort -u)
 
 for file in $files; do
     echo $file
-    python ~/amnre/plots.py coverage **/results/$file -o plots/${file/.csv/.pdf}
+    python ~/amnre/plots.py calibration **/results/$file -o plots/${file/.csv/.pdf}
 done
 
 # ROC

@@ -24,4 +24,4 @@ python train.py -simulator SLCP -samples $SRC/slcp-train.h5 -valid $SRC/slcp-val
 
 python eval.py $DST/models/slcp-mnpe.pth $SRC/slcp-test.h5 -masks =1 =2 -indices 0 3 -o $DST/results/slcp-mnpe.csv
 python eval.py $DST/models/slcp-mnpe.pth $SRC/slcp-test.h5 -masks =1 =2 -indices 0 64 -clean -accuracy -consistency -o $DST/results/slcp-mnpe_cons.csv
-python eval.py $DST/models/slcp-mnpe.pth $SRC/slcp-test.h5 -masks =1 -indices 0 8192 -bins 256 -clean -coverage -o $DST/results/slcp-mnpe_cov.csv
+python eval.py $DST/models/slcp-mnpe.pth $SRC/slcp-test.h5 -masks =1 -indices 0 8192 -bins 256 -clean -calibration -o $DST/results/slcp-mnpe_cal.csv
