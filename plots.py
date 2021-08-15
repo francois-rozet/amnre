@@ -124,13 +124,15 @@ def error_plot(df: pd.DataFrame, legend: List[str] = None, quantity: str = None)
     mu, sigma = mu.to_numpy().T, sigma.to_numpy().T
 
     width, _ = plt.rcParams['figure.figsize']
+    height = width * len(labels) / 15
 
     if mu.shape[0] > 2:
-        fig = plt.figure(figsize=(width, width * len(labels) / 12))
+        height = height * 1.25 ** (mu.shape[0] - 2)
         space = np.linspace(-.5, .5, mu.shape[0] + 2)[1:-1]
     else:
-        fig = plt.figure(figsize=(width, width * len(labels) / 15))
         space = np.linspace(-.66, .66, mu.shape[0] + 2)[1:-1]
+
+    fig = plt.figure(figsize=(width, height))
 
     for i, shift in enumerate(space):
         transform = mpl.transforms.Affine2D().translate(0., shift) + plt.gca().transData
@@ -522,7 +524,7 @@ if __name__ == '__main__':
                 for i, df in enumerate(dfs[1:]):
                     err = err.join(df['total_probability'], rsuffix=f'_{i}')
 
-                error_plot(err, keys, 'Probability')
+                error_plot(err, keys, 'Total probability')
             elif metric == 'entropy':
                 if 'entropy_truth' in dfs[0].columns:
                     err = dfs[0][['mask', 'entropy_truth', 'entropy']]
