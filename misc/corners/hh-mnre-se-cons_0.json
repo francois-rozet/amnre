@@ -20,7 +20,7 @@
             "files": "**/results/hh-mnre-se-event_0_01100000.pth"
         }
     ],
-    "legend": ["marginals", null, null, null],
+    "legend": ["1-d", null, null, null],
     "masks": {
         "11100000": {"size": 3.2}
     }

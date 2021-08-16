@@ -2,26 +2,26 @@
     "items": [
         {
             "files": [
-                "**/results/slcp-mnre_0_10000.pth",
-                "**/results/slcp-mnre_0_01000.pth",
-                "**/results/slcp-mnre_0_00100.pth"
+                "**/results/slcp-mnre_0_00100.pth",
+                "**/results/slcp-mnre_0_00010.pth",
+                "**/results/slcp-mnre_0_00001.pth"
             ]
         },
         {
             "marginalize": true,
-            "files": "**/results/slcp-mnre_0_11000.pth"
+            "files": "**/results/slcp-mnre_0_00110.pth"
         },
         {
             "marginalize": true,
-            "files": "**/results/slcp-mnre_0_10100.pth"
+            "files": "**/results/slcp-mnre_0_00101.pth"
         },
         {
             "marginalize": true,
-            "files": "**/results/slcp-mnre_0_01100.pth"
+            "files": "**/results/slcp-mnre_0_00011.pth"
         }
     ],
-    "legend": ["marginals", null, null, null],
+    "legend": ["1-d", null, null, null],
     "masks": {
-        "11100": {"size": 3.2}
+        "00111": {"size": 3.2}
     }
 }
