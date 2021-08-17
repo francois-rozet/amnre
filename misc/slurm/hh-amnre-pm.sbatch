@@ -27,5 +27,6 @@ python train.py -simulator HH -samples $SRC/hh-adv.h5 -valid $SRC/hh-valid.h5 -m
 python eval.py $DST/models/hh-amnre-pm.pth $SRC/hh-event.h5 -masks =1 =2 =8 -o $DST/results/hh-amnre-pm-event.csv
 python eval.py $DST/models/hh-amnre-pm.pth $SRC/hh-test.h5 -masks =1 =2 -indices 0 64 -clean -consistency -o $DST/results/hh-amnre-pm_cons.csv
 python eval.py $DST/models/hh-amnre-pm.pth $SRC/hh-test.h5 -masks =1 -indices 0 8192 -bins 256 -clean -calibration -o $DST/results/hh-amnre-pm_cal.csv
+python eval.py $DST/models/hh-amnre-pm.pth $SRC/hh-test.h5 -masks 10000000 11000000 11100100 11111111 -indices 0 0 -kl -o $DST/results/hh-amnre-pm_kl.csv
 python eval.py $DST/models/hh-amnre-pm.pth $SRC/hh-test.h5 -masks 10000000 11000000 11100100 11111111 -indices 0 0 -classify -o $DST/results/hh-amnre-pm_roc.csv
 python eval.py $DST/models/hh-amnre-pm-adv.pth $SRC/hh-test.h5 -masks 10000000 11000000 11100100 11111111 -indices 0 0 -classify -o $DST/results/hh-amnre-pm-adv_roc.csv

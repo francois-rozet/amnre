@@ -22,4 +22,4 @@ MODEL='{"design": "MAF", "num_transforms": 7, "hidden_features": 128, "num_block
 
 python train.py -simulator SLCP -samples $SRC/slcp-train.h5 -valid $SRC/slcp-valid.h5 -model "$MODEL" -flow -o $DST/models/slcp-npe.pth -device cuda
 
-python eval.py $DST/models/slcp-npe.pth $SRC/slcp-test.h5 -indices 0 3 -steps 1024 -burn 0 -accuracy -o $DST/results/slcp-npe.csv
+python eval.py $DST/models/slcp-npe.pth $SRC/slcp-test.h5 -steps 1024 -burn 0 -o $DST/results/slcp-npe.csv

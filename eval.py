@@ -19,7 +19,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-bs', type=int, default=2 ** 12, help='batch size')
     parser.add_argument('-steps', type=int, default=2 ** 14, help='number of steps')
-    parser.add_argument('-burn', type=int, default=2 ** 8, help='burning steps')
+    parser.add_argument('-burn', type=int, default=2 ** 13, help='burning steps')
     parser.add_argument('-groupby', type=int, default=2 ** 8, help='sample group size')
     parser.add_argument('-sigma', type=float, default=2e-2, help='relative standard deviation')
 
@@ -33,6 +33,7 @@ if __name__ == '__main__':
     parser.add_argument('-calibration', default=False, action='store_true')
     parser.add_argument('-consistency', default=False, action='store_true')
 
+    parser.add_argument('-kl', default=False, action='store_true')
     parser.add_argument('-classify', default=False, action='store_true')
 
     parser.add_argument('-o', '--output', default='products/results/out.csv', help='output file (CSV)')
@@ -42,13 +43,16 @@ if __name__ == '__main__':
     torch.set_grad_enabled(False)
 
     # Output
-    if os.path.dirname(args.output):
+    if os.path.exists(args.output):
+        os.remove(args.output)
+    elif os.path.dirname(args.output):
         os.makedirs(os.path.dirname(args.output), exist_ok=True)
 
     # Settings
     settings = load_settings(args.network.replace('.pth', '.json'))
     settings['weights'] = args.network
     settings['samples'] = args.samples
+    settings['bs'] = args.bs
 
     # Simulator & Model
     simulator, dataset, model, adversary = build_instance(settings)
@@ -241,19 +245,55 @@ if __name__ == '__main__':
             df = pd.DataFrame(divergences)
             df.to_csv(args.output.replace('.csv', f'_{idx}.csv'))
 
-    # Classification
+    # Ratio tests
+    if type(model) in [amnre.NPE, amnre.MNPE]:
+        model.ratio()
+
+    dataset = amnre.LTEDataset(dataset)
+
+    ## KL
+    if args.kl:
+        data = {}
+
+        for theta, theta_prime, x in dataset:
+            y = model.embedding(x)
+
+            for mask in masks:
+                textmask = amnre.mask2str(mask)
+
+                if type(model) in [amnre.NRE, amnre.NPE]:
+                    nre = model
+                else:
+                    nre = model[mask]
+                    if nre is None:
+                        continue
+
+                log_ratio = nre(theta[..., mask], y).mean()
+                avg_ratio = nre(theta_prime[..., mask], y).exp().mean()
+
+                if textmask not in data:
+                    data[textmask] = {'kl': [], 'avg_ratio': []}
+
+                data[textmask]['kl'].append(log_ratio.item())
+                data[textmask]['avg_ratio'].append(avg_ratio.item())
+
+        for val in data.values():
+            val['kl'] = np.array(val['kl']).mean()
+            val['avg_ratio'] = np.array(val['avg_ratio']).mean()
+            val['log_avg_ratio'] = np.log(val['avg_ratio'])
+
+        with open(args.output.replace('.csv', '.json'), 'w') as f:
+            json.dump(data, f, indent=4)
+
+    ## Classification
+    inverse = settings.get('inverse', False)
+
     if args.classify:
-        if type(model) in [amnre.NPE, amnre.MNPE]:
-            model.ratio()
-
-        dataset = amnre.LTEDataset(dataset)
-        length = len(dataset)
-
         with h5py.File(args.output.replace('.csv', '.h5'), 'w') as f:
             for mask in masks:
                 textmask = amnre.mask2str(mask)
 
-                f.create_dataset(textmask, (length * 2, 3))
+                f.create_dataset(textmask, (len(dataset) * 2, 3))
 
             i = 0
             for theta, theta_prime, x in dataset:
@@ -275,12 +315,12 @@ if __name__ == '__main__':
                         if nre is None:
                             continue
 
-                    adv_theta = theta if settings['inverse'] else theta_prime
+                    adv_theta = theta if inverse else theta_prime
                     adv_ratio = adv_nre(adv_theta[..., mask], adv_y)
 
                     pred = nre(theta[..., mask], y).sigmoid().cpu().numpy()
 
-                    if settings['inverse'] and adv_ratio is not None:
+                    if inverse and adv_ratio is not None:
                         weight = (-adv_ratio).exp().cpu().numpy()
                     else:
                         weight = np.ones_like(pred)
@@ -289,7 +329,7 @@ if __name__ == '__main__':
 
                     pred = nre(theta_prime[..., mask], y).sigmoid().cpu().numpy()
 
-                    if not settings['inverse'] and adv_ratio is not None:
+                    if not inverse and adv_ratio is not None:
                         weight = adv_ratio.exp().cpu().numpy()
                     else:
                         weight = np.ones_like(pred)

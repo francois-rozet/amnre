@@ -22,4 +22,4 @@ MODEL='{"num_layers": 7, "hidden_size": 256, "activation": "ELU"}'
 
 python train.py -simulator SLCP -samples $SRC/slcp-train.h5 -valid $SRC/slcp-valid.h5 -model "$MODEL" -o $DST/models/slcp-nre.pth -device cuda
 
-python eval.py $DST/models/slcp-nre.pth $SRC/slcp-test.h5 -indices 0 3 -accuracy -o $DST/results/slcp-nre.csv
+python eval.py $DST/models/slcp-nre.pth $SRC/slcp-test.h5 -o $DST/results/slcp-nre.csv

@@ -26,4 +26,3 @@ python train.py -simulator HH -samples $SRC/hh-train.h5 -valid $SRC/hh-valid.h5 
 python eval.py $DST/models/hh-mnre-pl.pth $SRC/hh-event.h5 -masks =1 =2 -o $DST/results/hh-mnre-pl-event.csv
 python eval.py $DST/models/hh-mnre-pl.pth $SRC/hh-test.h5 -masks =1 =2 -indices 0 64 -clean -consistency -o $DST/results/hh-mnre-pl_cons.csv
 python eval.py $DST/models/hh-mnre-pl.pth $SRC/hh-test.h5 -masks =1 -indices 0 8192 -bins 256 -clean -calibration -o $DST/results/hh-mnre-pl_cal.csv
-

@@ -279,10 +279,11 @@ class MNRE(nn.Module):
 
     def __getitem__(self, mask: torch.BoolTensor) -> nn.Module:
         mask = mask.to(self.masks)
+        select = torch.all(mask == self.masks, dim=-1)
+        indices = torch.nonzero(select).squeeze(-1).tolist()
 
-        for m, ne in iter(self):
-            if (mask == m).all():
-                return ne
+        for i in indices:
+            return self.nes[i]
 
         return None
 
