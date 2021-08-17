@@ -43,6 +43,8 @@ class PoissonMask(nn.Module):
         self.size = size
         self.lam = lam
 
+        self.rng = np.random.default_rng()
+
         indices = torch.arange(self.size)
         if filtr is not None:
             indices = indices[filtr]
@@ -56,7 +58,7 @@ class PoissonMask(nn.Module):
     def forward(self, shape: torch.Size = ()) -> torch.BoolTensor:
         masks = torch.zeros(shape + (self.size,), dtype=bool, device=self.device)
 
-        k = 1 + np.random.poisson(self.lam)
+        k = 1 + self.rng.poisson(self.lam)
         length = len(self.indices)
 
         if k < length:
