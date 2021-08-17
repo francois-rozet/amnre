@@ -1,5 +1,6 @@
 {
     "MNRE": "**/results/hh-mnre_roc.h5",
+    "MNRE-s": "**/results/hh-mnre-se_roc.h5",
     "MNPE": "**/results/hh-mnpe_roc.h5",
     "AMNRE-u": "**/results/hh-amnre_roc.h5",
     "AMNRE-p": "**/results/hh-amnre-pm_roc.h5"
