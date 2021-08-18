@@ -51,15 +51,16 @@ if __name__ == '__main__':
     # Settings
     settings = load_settings(args.network.replace('.pth', '.json'))
     settings['weights'] = args.network
-    settings['samples'] = args.samples
-    settings['bs'] = args.bs
 
     # Simulator & Model
-    simulator, dataset, model, adversary = build_instance(settings)
+    simulator, _, model, adversary = build_instance(settings)
     model.eval()
 
     low, high = simulator.low, simulator.high
     device = low.device
+
+    # Dataset
+    dataset = amnre.OfflineDataset(args.samples, batch_size=args.bs, device=device, shuffle=False)
 
     # Masks
     theta_size = low.numel()

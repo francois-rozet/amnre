@@ -46,6 +46,7 @@ class OfflineDataset(data.IterableDataset):
         chunk_size: str = 2 ** 18,  # 262144
         batch_size: int = 2 ** 10,  # 1024
         device: str = 'cpu',
+        shuffle: bool = True,
     ):
         super().__init__()
 
@@ -59,6 +60,9 @@ class OfflineDataset(data.IterableDataset):
 
         self.batch_size = batch_size
         self.device = device
+
+        self.rng = np.random.default_rng()
+        self.shuffle = shuffle
 
         if 'mu' in self.f:
             self.mu = torch.from_numpy(self.f['mu'][:]).to(device)
@@ -90,19 +94,21 @@ class OfflineDataset(data.IterableDataset):
         return theta, self.normalize(x)
 
     def __iter__(self): # -> Tuple[torch.Tensor, torch.Tensor]
-        np.random.shuffle(self.chunks)
+        if self.shuffle:
+            self.rng.shuffle(self.chunks)
 
         for chunk in self.chunks:
             # Load
             theta_chunk, x_chunk = self.f['theta'][chunk], self.f['x'][chunk]
 
             ## Shuffle
-            order = np.random.permutation(len(x_chunk))
-            theta_chunk, x_chunk = theta_chunk[order], x_chunk[order]
+            if self.shuffle:
+                order = self.rng.permutation(len(x_chunk))
+                theta_chunk, x_chunk = theta_chunk[order], x_chunk[order]
 
             ## Noise
             if self.noisy:
-                noise_chunk = np.random.permutation(self.f['noise'][chunk])
+                noise_chunk = self.rng.permutation(self.f['noise'][chunk])
                 x_chunk = x_chunk + noise_chunk
 
             # CUDA
@@ -145,7 +151,7 @@ class LTEDataset(data.IterableDataset):
     def __iter__(self): # -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
         for theta, x in self.dataset:
             if self.prior is None:
-                theta_prime = theta[torch.randperm(len(theta))]
+                theta_prime = torch.roll(theta, 1, 0)
             else:
                 theta_prime = self.prior.sample(theta.shape[:-1])
 

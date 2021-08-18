@@ -56,6 +56,8 @@ class GW(Simulator):
         self.register_buffer('low', bounds[:, 0])
         self.register_buffer('high', bounds[:, 1])
 
+        self.rng = np.random.default_rng()
+
         # Simulator
         from .lfigw import waveform_generator as wfg
         from .lfigw.reduced_basis import SVDBasis
@@ -150,7 +152,7 @@ class GW(Simulator):
 
     def noise(self, shape: torch.Size = ()) -> torch.Tensor:
         size = shape + (len(self.wfd.detectors), self.wfd.Nrb * 2)
-        noise = np.random.normal(size=size).astype(np.float32)
+        noise = self.rng.normal(size=size).astype(np.float32)
 
         return torch.from_numpy(noise)
 

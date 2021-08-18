@@ -97,7 +97,7 @@ def build_instance(settings: dict) -> tuple:
     model.to(settings['device'])
 
     # Adversary
-    if os.path.isfile(settings['adversary']) and type(model) not in [amnre.NPE, amnre.MNPE]:
+    if os.path.isfile(settings['adversary']) and type(model) in [amnre.NRE, amnre.MNRE]:
         adversary = load_model(settings['adversary'])
         adversary.to(settings['device'])
         adversary.eval()
@@ -235,7 +235,8 @@ if __name__ == '__main__':
     trainset = amnre.LTEDataset(dataset)
 
     if args.valid is not None:
-        validset = amnre.LTEDataset(amnre.OfflineDataset(args.valid, batch_size=args.bs, device=args.device))
+        validset = amnre.OfflineDataset(args.valid, batch_size=args.bs, device=args.device)
+        validset = amnre.LTEDataset(validset)
 
     # Training
     stats = []

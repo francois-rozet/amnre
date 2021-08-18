@@ -76,7 +76,9 @@ def routine(
             if mask_sampler is None:
                 ratio = model(theta, y)
                 ratio_prime = model(theta_prime, y)
-                adv_ratio = adversary(theta if inverse else theta_prime, adv_y)
+
+                with torch.no_grad():
+                    adv_ratio = adversary(theta if inverse else theta_prime, adv_y)
             else:
                 if model.hyper is None:
                     mask = mask_sampler(theta.shape[:1])
@@ -85,7 +87,9 @@ def routine(
 
                 ratio = model(theta, y, mask)
                 ratio_prime = model(theta_prime, y, mask)
-                adv_ratio = adversary(theta if inverse else theta_prime, adv_y, mask)
+
+                with torch.no_grad():
+                    adv_ratio = adversary(theta if inverse else theta_prime, adv_y, mask)
 
             if adv_ratio is not None:
                 adv_ratio = (-adv_ratio if inverse else adv_ratio).exp()
