@@ -12,7 +12,7 @@
     "legend": ["NRE (MCMC)", "NPE"],
     "star": ["samples/hh-event.h5", 0],
     "masks": {
-        "11100100": {},
+        "11100100": {"size": 4.8},
         "11111111": {"quantiles": [0.6827, 0.9545]}
     }
 }

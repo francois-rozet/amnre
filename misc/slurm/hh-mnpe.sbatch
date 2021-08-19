@@ -24,7 +24,7 @@ ADV='{"num_layers": 11, "hidden_size": 512, "activation": "ELU"}'
 python train.py -simulator HH -samples $SRC/hh-train.h5 -valid $SRC/hh-valid.h5 -model "$MODEL" -flow -masks =1 =2 11100100 11111111 -o $DST/models/hh-mnpe.pth -device cuda
 python train.py -simulator HH -samples $SRC/hh-adv.h5 -valid $SRC/hh-valid.h5 -model "$ADV" -masks 10000000 11000000 11100100 11111111 -adversary $DST/models/hh-mnpe.pth -lr 1e-4 -min-lr 1e-5 -patience 11 -o $DST/models/hh-mnpe-adv.pth -device cuda
 
-python eval.py $DST/models/hh-mnpe.pth $SRC/hh-event.h5 -masks =1 =2 =8 -steps 1024 -burn 0 -o $DST/results/hh-mnpe-event.csv
+python eval.py $DST/models/hh-mnpe.pth $SRC/hh-event.h5 -masks =1 =2 11100100 11111111 -steps 1024 -burn 0 -o $DST/results/hh-mnpe-event.csv
 python eval.py $DST/models/hh-mnpe.pth $SRC/hh-test.h5 -masks =1 =2 -indices 0 64 -clean -consistency -o $DST/results/hh-mnpe_cons.csv
 python eval.py $DST/models/hh-mnpe.pth $SRC/hh-test.h5 -masks =1 -indices 0 8192 -bins 256 -clean -calibration -o $DST/results/hh-mnpe_cal.csv
 python eval.py $DST/models/hh-mnpe.pth $SRC/hh-test.h5 -masks 10000000 11000000 11100100 11111111 -indices 0 0 -kl -o $DST/results/hh-mnpe_kl.csv

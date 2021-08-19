@@ -153,7 +153,7 @@ if __name__ == '__main__':
                 samples = sampler(args.steps, burn=args.burn, groupby=args.groupby)
                 hist = reduce_histogramdd(
                     samples, args.bins,
-                    low, high,
+                    low[mask], high[mask],
                     bounded=not leakage,
                     sparse=True,
                     device='cpu',

@@ -1,0 +1,17 @@
+{
+    "items": [
+        {
+            "marginalize": true,
+            "files": "**/results/hh-mnre-event_0_11100100.pth"
+        },
+        {
+            "marginalize": true,
+            "files": "**/results/hh-mnre-se-event_0_11100100.pth"
+        }
+    ],
+    "legend": ["distinct", "shared"],
+    "star": ["samples/hh-event.h5", 0],
+    "masks": {
+        "11100100": {"size": 4.8}
+    }
+}
