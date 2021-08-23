@@ -402,7 +402,9 @@ class MAF(flows.Flow):
         self,
         x_size: int,
         y_size: int,
+        design: str = 'A',  # ['PRQ', 'UMNN']
         num_transforms: int = 5,
+        lu_linear: bool = False,
         moments: Tuple[torch.Tensor, torch.Tensor] = None,
         **kwargs,
     ):
@@ -412,17 +414,32 @@ class MAF(flows.Flow):
         kwargs.setdefault('use_batch_norm', False)
         kwargs.setdefault('activation', F.relu)
 
-        transform = []
+        if design == 'PRQ':
+            kwargs['tails'] = 'linear'
+            kwargs.setdefault('num_bins', 8)
+            kwargs.setdefault('tail_bound', 1.)
+
+            tfrm = transforms.MaskedPiecewiseRationalQuadraticAutoregressiveTransform
+        elif design == 'UMNN':
+            kwargs.setdefault('integrand_net_layers', [64, 64, 64])
+            kwargs.setdefault('cond_size', 32)
+            kwargs.setdefault('nb_steps', 32)
+
+            tfrm = transforms.MaskedUMNNAutoregressiveTransform
+        else:  # design == 'A'
+            tfrm = transforms.MaskedAffineAutoregressiveTransform
+
+        compose = []
 
         if moments is not None:
             shift, scale = moments
-            transform.append(
+            compose.append(
                 transforms.PointwiseAffineTransform(-shift / scale, 1 / scale)
             )
 
         for _ in range(num_transforms if x_size > 1 else 1):
-            transform.extend([
-                transforms.MaskedAffineAutoregressiveTransform(
+            compose.extend([
+                tfrm(
                     features=x_size,
                     context_features=y_size,
                     **kwargs,
@@ -430,104 +447,12 @@ class MAF(flows.Flow):
                 transforms.RandomPermutation(features=x_size),
             ])
 
-        transform = transforms.CompositeTransform(transform)
-        distribution = distributions.StandardNormal((x_size,))
+            if lu_linear:
+                compose.append(
+                    transforms.LULinear(x_size, identity_init=True),
+                )
 
-        super().__init__(transform, distribution)
-
-
-class NSF(flows.Flow):
-    r"""Neural Spline Flow (NSF)
-
-    (x, y) -> log p(x | y)
-    """
-
-    def __init__(
-        self,
-        x_size: int,
-        y_size: int,
-        num_transforms: int = 5,
-        moments: Tuple[torch.Tensor, torch.Tensor] = None,
-        **kwargs,
-    ):
-        kwargs.setdefault('hidden_features', 64)
-        kwargs.setdefault('num_blocks', 2)
-        kwargs.setdefault('use_residual_blocks', False)
-        kwargs.setdefault('use_batch_norm', False)
-        kwargs.setdefault('activation', F.relu)
-
-        kwargs['tails'] = 'linear'
-        kwargs.setdefault('num_bins', 8)
-        kwargs.setdefault('tail_bound', 1.)
-
-        transform = []
-
-        if moments is not None:
-            shift, scale = moments
-            transform.append(
-                transforms.PointwiseAffineTransform(-shift / scale, 1 / scale)
-            )
-
-        for _ in range(num_transforms if x_size > 1 else 1):
-            transform.extend([
-                transforms.MaskedPiecewiseRationalQuadraticAutoregressiveTransform(
-                    features=x_size,
-                    context_features=y_size,
-                    **kwargs,
-                ),
-                transforms.RandomPermutation(features=x_size),
-                transforms.LULinear(x_size, identity_init=True),
-            ])
-
-        transform = transforms.CompositeTransform(transform)
-        distribution = distributions.StandardNormal((x_size,))
-
-        super().__init__(transform, distribution)
-
-
-class UMNN(flows.Flow):
-    r"""Unconstrained Monotonic Neural Network (UMNN)
-
-    (x, y) -> log p(x | y)
-    """
-
-    def __init__(
-        self,
-        x_size: int,
-        y_size: int,
-        num_transforms: int = 1,
-        moments: Tuple[torch.Tensor, torch.Tensor] = None,
-        **kwargs,
-    ):
-        kwargs.setdefault('hidden_features', 64)
-        kwargs.setdefault('num_blocks', 2)
-        kwargs.setdefault('use_residual_blocks', False)
-        kwargs.setdefault('use_batch_norm', False)
-        kwargs.setdefault('activation', F.relu)
-
-        kwargs.setdefault('integrand_net_layers', [64, 64, 64])
-        kwargs.setdefault('cond_size', 32)
-        kwargs.setdefault('nb_steps', 32)
-
-        transform = []
-
-        if moments is not None:
-            shift, scale = moments
-            transform.append(
-                transforms.PointwiseAffineTransform(-shift / scale, 1 / scale)
-            )
-
-        for _ in range(num_transforms if x_size > 1 else 1):
-            transform.extend([
-                transforms.MaskedUMNNAutoregressiveTransform(
-                    features=x_size,
-                    context_features=y_size,
-                    **kwargs,
-                ),
-                transforms.RandomPermutation(features=x_size),
-            ])
-
-        transform = transforms.CompositeTransform(transform)
+        transform = transforms.CompositeTransform(compose)
         distribution = distributions.StandardNormal((x_size,))
 
         super().__init__(transform, distribution)
@@ -545,7 +470,6 @@ class NPE(nn.Module):
         x_size: int,
         embedding: nn.Module = nn.Identity(),
         moments: Tuple[torch.Tensor, torch.Tensor] = None,
-        design: str = 'MAF',
         prior: Distribution = None,
         **kwargs,
     ):
@@ -553,14 +477,7 @@ class NPE(nn.Module):
 
         self.embedding = embedding
 
-        if design == 'UMNN':
-            flow = UMNN
-        elif design == 'NSF':
-            flow = NSF
-        else:  # design == 'MAF'
-            flow = MAF
-
-        self.flow = flow(theta_size, x_size, moments=moments, **kwargs)
+        self.flow = MAF(theta_size, x_size, moments=moments, **kwargs)
 
         self.prior = prior
         self._ratio = False

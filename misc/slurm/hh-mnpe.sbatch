@@ -18,7 +18,7 @@ cd ~/amnre
 SRC=$SCRATCH/samples
 DST=$SCRATCH/$SLURM_ARRAY_TASK_ID
 
-MODEL='{"design": "MAF", "num_transforms": 7, "hidden_features": 128, "num_blocks": 3}'
+MODEL='{"num_transforms": 7, "hidden_features": 128, "num_blocks": 3}'
 ADV='{"num_layers": 11, "hidden_size": 512, "activation": "ELU"}'
 
 python train.py -simulator HH -samples $SRC/hh-train.h5 -valid $SRC/hh-valid.h5 -model "$MODEL" -flow -masks =1 =2 11100100 11111111 -o $DST/models/hh-mnpe.pth -device cuda
