@@ -124,10 +124,15 @@ if __name__ == '__main__':
 
             if type(model) in [amnre.NRE, amnre.NPE]:
                 ne = model
+                adv = adversary
             else:
                 ne = model[mask]
+                adv = adversary[mask]
                 if ne is None:
                     continue
+
+            if type(adv) is not amnre.Dummy:
+                ne = amnre.TNRE(ne, adv)
 
             ### Hist
             numel = args.bins ** torch.count_nonzero(mask).item()

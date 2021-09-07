@@ -19,7 +19,10 @@ SRC=$SCRATCH/samples
 DST=$SCRATCH/$SLURM_ARRAY_TASK_ID
 
 MODEL='{"num_layers": 7, "hidden_size": 256, "activation": "ELU"}'
+ADV='{"num_layers": 11, "hidden_size": 512, "activation": "ELU"}'
 
 python train.py -simulator HH -samples $SRC/hh-train.h5 -valid $SRC/hh-valid.h5 -model "$MODEL" -o $DST/models/hh-nre.pth -device cuda
+python train.py -simulator HH -samples $SRC/hh-adv.h5 -valid $SRC/hh-valid.h5 -model "$ADV" -adversary $DST/models/hh-nre.pth -lr 1e-4 -min-lr 1e-5 -patience 11 -o $DST/models/hh-nre-adv.pth -device cuda
 
 python eval.py $DST/models/hh-nre.pth $SRC/hh-event.h5 -o $DST/results/hh-nre-event.csv
+python eval.py $DST/models/hh-nre-adv.pth $SRC/hh-event.h5 -o $DST/results/hh-nre-adv-event.csv

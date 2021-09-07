@@ -544,3 +544,23 @@ class MNPE(MNRE):
     def ratio(self, mode: bool = True):
         for _, ne in iter(self):
             ne.ratio(mode)
+
+
+class TNRE(nn.Module):
+    r"""Telescoping Neural Ratio Estimator (TNRE)
+
+    (theta, x) ---> log r_1 * r_2 * r_3(theta | x)
+    """
+
+    def __init__(self, *nres):
+        super().__init__()
+
+        self.nres = nn.ModuleList(nres)
+
+    def forward(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        ratio = 0
+
+        for nre in self.nres:
+            ratio = ratio + nre(theta, x)
+
+        return ratio
