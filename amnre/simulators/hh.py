@@ -4,7 +4,6 @@ import numpy as np
 import torch
 
 from functools import cached_property
-from multiprocessing import cpu_count
 from torch.distributions import (
     Distribution,
     Independent,
@@ -24,7 +23,6 @@ class HH(Simulator):
     """
 
     def __init__(self,
-        seed: int = 0,
         cython: bool = True,
         n_xcorr: int = 0,
         n_mom: int = 4,
@@ -32,7 +30,7 @@ class HH(Simulator):
     ):
         super().__init__()
 
-        from delfi.generator import MPGenerator
+        from delfi.generator import Default as Generator
 
         from .hhpkg.utils import obs_params, syn_current, syn_obs_data, syn_obs_stats, prior
         from .hhpkg.HodgkinHuxley import HodgkinHuxley
@@ -46,29 +44,25 @@ class HH(Simulator):
 
         theta, _ = obs_params(reduced_model=False)
         I, t_on, t_off, dt = syn_current()
-        observation = syn_obs_data(I, dt, theta, seed=seed, cython=cython)
+        observation = syn_obs_data(I, dt, theta, cython=cython)
 
         prior = prior(
             true_params=theta,
             prior_uniform=True,
             prior_extent=True,
             prior_log=False,
-            seed=seed,
         )
 
-        models = [
-            HodgkinHuxley(
-                I, dt, V0=observation['data'][0],
-                reduced_model=False,
-                prior_log=False,
-                seed=seed + i,
-                cython=cython,
-            ) for i in range(cpu_count())
-        ]
+        model = HodgkinHuxley(
+            I, dt, V0=observation['data'][0],
+            reduced_model=False,
+            prior_log=False,
+            cython=cython,
+        )
 
         stats = HodgkinHuxleyStatsMoments(t_on=t_on, t_off=t_off, n_xcorr=n_xcorr, n_mom=n_mom, n_summary=n_summary)
 
-        self.generator = MPGenerator(models=models, prior=prior, summary=stats)
+        self.generator = Generator(model=model, prior=prior, summary=stats)
 
         low = torch.from_numpy(prior.lower).float()
         high = torch.from_numpy(prior.upper).float()
@@ -80,8 +74,7 @@ class HH(Simulator):
         self.x_star = syn_obs_stats(
             data=observation,
             I=I, t_on=t_on, t_off=t_off, dt=dt,
-            params=theta,
-            seed=seed, cython=cython, n_xcorr=n_xcorr, n_mom=n_mom, n_summary=n_summary,
+            params=theta, cython=cython, n_xcorr=n_xcorr, n_mom=n_mom, n_summary=n_summary,
         )
 
     def masked_prior(self, mask: torch.BoolTensor) -> Distribution:

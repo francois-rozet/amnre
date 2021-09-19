@@ -4,6 +4,7 @@ import h5py
 import numpy as np
 import os
 import torch
+import torch.utils.data as data
 
 from tqdm import tqdm
 
@@ -12,30 +13,6 @@ import amnre
 from amnre.simulators.slcp import SLCP
 from amnre.simulators.gw import GW
 from amnre.simulators.hh import HH
-
-
-def gather_chunk(
-    simulator: amnre.Simulator,
-    chunk_size: int,
-    batch_size: int,
-    progress = None  # tqdm
-) -> tuple:
-    theta_chunk, x_chunk = [], []
-
-    for _ in range(0, chunk_size, batch_size):
-        theta, x = simulator.joint((batch_size,))
-        theta, x = np.asarray(theta), np.asarray(x)
-
-        theta_chunk.append(theta)
-        x_chunk.append(x)
-
-        if progress is not None:
-            progress.update(batch_size)
-
-    theta_chunk = np.concatenate(theta_chunk)
-    x_chunk = np.concatenate(x_chunk)
-
-    return theta_chunk, x_chunk
 
 
 if __name__ == '__main__':
@@ -55,6 +32,7 @@ if __name__ == '__main__':
     parser.add_argument('-events', default=False, action='store_true', help='store events')
 
     parser.add_argument('-moments', default=False, action='store_true', help='compute moments')
+    parser.add_argument('-dump', type=int, default=2 ** 16, help='number of dump samples')
 
     parser.add_argument('-o', '--output', default='products/samples/out.h5', help='output file (H5)')
 
@@ -72,15 +50,21 @@ if __name__ == '__main__':
     if args.simulator == 'GW':
         simulator = GW(noisy=not args.live)
     elif args.simulator == 'HH':
-        simulator = HH(seed=args.seed)
+        simulator = HH()
     else:  # args.simulator == 'SCLP'
         simulator = SLCP()
 
     # Moments
     if args.moments:
         if args.reference is None:
-            with tqdm(total=args.chunk_size) as tq:
-                _, x = gather_chunk(simulator, args.chunk_size, args.batch_size, progress=tq)
+            x = [
+                x for _, x in
+                tqdm(
+                    amnre.ParallelSampler(simulator, args.dump, args.batch_size),
+                    unit_scale=args.batch_size,
+                )
+            ]
+            x = np.concatenate(x)
 
             mu = x.mean(axis=0)
             sigma = x.std(axis=0)
@@ -127,14 +111,13 @@ if __name__ == '__main__':
             dtype=x.dtype,
         )
 
-        with tqdm(total=args.samples) as tq:
-            for i in range(0, args.samples, args.chunk_size):
-                theta, x = gather_chunk(
-                    simulator,
-                    args.chunk_size,
-                    args.batch_size,
-                    progress=tq,
-                )
+        i = 0
 
-                f['theta'][i:i + args.chunk_size] = theta
-                f['x'][i:i + args.chunk_size] = x
+        for theta, x in tqdm(
+            amnre.ParallelSampler(simulator, args.samples, args.batch_size),
+            unit_scale=args.batch_size,
+        ):
+            j = i + args.batch_size
+            f['theta'][i:j] = np.asarray(theta)
+            f['x'][i:j] = np.asarray(x)
+            i = j
