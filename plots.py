@@ -514,10 +514,14 @@ if __name__ == '__main__':
                     for f in match(files)
                 ]
 
-                keys.append(key)
-                dfs.append(pd.concat(dfss, ignore_index=True))
+                if dfss:
+                    keys.append(key)
+                    dfs.append(pd.concat(dfss, ignore_index=True))
 
-        for metric in ['probability', 'entropy', 'distance']:
+        for metric in ['probability', 'entropy', 'distance', 'divergence']:
+            if not dfs:
+                break
+
             if metric == 'probability':
                 err = dfs[0][['mask', 'total_probability']]
 
@@ -550,7 +554,17 @@ if __name__ == '__main__':
                 for i, df in enumerate(dfs[1:]):
                     err = err.join(df[colname], rsuffix=f'_{i}')
 
-                error_plot(err, keys, 'EMD to GT')
+                error_plot(err, keys, 'EMD to ground-truth')
+            elif metric == 'divergence':
+                if 'kl_truth' not in dfs[0].columns:
+                    continue
+
+                err = dfs[0][['mask', 'kl_truth']]
+
+                for i, df in enumerate(dfs[1:]):
+                    err = err.join(df['kl_truth'], rsuffix=f'_{i}')
+
+                error_plot(err, keys, 'KL to ground-truth')
 
             plt.savefig(args.output.replace('.pdf', f'_{metric}.pdf'))
             plt.close()

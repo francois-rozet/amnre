@@ -2,15 +2,15 @@
     "items": [
         {
             "marginalize": true,
-            "files": "**/results/gw-npe-event_0_110111111001011.pth"
+            "smooth": 1.0,
+            "files": "references/gw-bilby.pth"
         },
         {
             "marginalize": true,
-            "smooth": 1.0,
-            "files": "references/gw-bilby.pth"
+            "files": "**/results/gw-npe-event_0_110111111001011.pth"
         }
     ],
-    "legend": ["NPE", "Bilby"],
+    "legend": ["Bilby (15d)", "NPE (11d)"],
     "masks": {
         "110111111001000": {"quantiles": [0.6827, 0.9545]},
         "000000000000011": {"quantiles": [0.6827, 0.9545], "size": 2.4, "hide_legend": true}

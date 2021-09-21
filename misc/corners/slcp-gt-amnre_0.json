@@ -2,11 +2,11 @@
     "items": [
         {
             "marginalize": true,
-            "files": "**/results/slcp-amnre_0_11111.pth"
+            "files": "samples/slcp-test_0.pth"
         },
         {"files": "**/results/slcp-amnre_0_*.pth"}
     ],
-    "legend": ["5d (MCMC)", "1d and 2d"],
+    "legend": ["Ground-truth (MCMC)", "AMNRE (1d, 2d)"],
     "star": ["samples/slcp-test.h5", 0],
     "masks": {
         "11111": {"size": 4.8}
