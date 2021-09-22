@@ -102,16 +102,19 @@ def routine(
         if not l.isfinite():
             continue
 
-        losses.append(l.item())
-
         if optimizer is not None:
             optimizer.zero_grad()
             l.backward()
 
             if clip is not None:
-                nn.utils.clip_grad_norm_(model.parameters(), clip)
+                tot = nn.utils.clip_grad_norm_(model.parameters(), clip)
+
+                if not tot.isfinite():
+                    continue
 
             optimizer.step()
+
+        losses.append(l.item())
 
     end = time()
 

@@ -1,7 +1,8 @@
 # Adapted from https://github.com/stephengreen/lfi-gw/blob/master/bilby_runs/GW150914.prior
 
 mass_1 = Uniform(name='mass_1', minimum=10, maximum=80)
-mass_ratio = Uniform(name='mass_ratio', minimum=0.125, maximum=1)
+mass_2 = Uniform(name='mass_2', minimum=10, maximum=80)
+mass_ratio = Constraint(name='mass_ratio', minimum=0.125, maximum=1)
 phase =  Uniform(name='phase', minimum=0, maximum=2 * np.pi, boundary='periodic')
 geocent_time = Uniform(name='geocent_time', minimum=1126259462.3, maximum=1126259462.5)
 luminosity_distance = Uniform(name='luminosity_distance', minimum=1e2, maximum=1e3)

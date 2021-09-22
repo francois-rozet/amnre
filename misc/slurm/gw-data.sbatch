@@ -17,6 +17,6 @@ cd ~/amnre
 SRC=$SCRATCH/samples
 
 python sample.py -simulator GW -seed 0 -events -o $SRC/gw-event.h5
-python sample.py -simulator GW -seed 1 -samples 4194304 -o $SRC/gw-train.h5
+python sample.py -simulator GW -live -seed 1 -samples 4194304 -o $SRC/gw-train.h5
 python sample.py -simulator GW -seed 2 -samples 131072 -o $SRC/gw-test.h5
 python sample.py -simulator GW -seed 3 -samples 131072 -o $SRC/gw-valid.h5

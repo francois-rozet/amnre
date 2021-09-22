@@ -412,7 +412,8 @@ class MAF(flows.Flow):
         kwargs.setdefault('num_blocks', 2)
         kwargs.setdefault('use_residual_blocks', False)
         kwargs.setdefault('use_batch_norm', False)
-        kwargs.setdefault('activation', F.relu)
+
+        kwargs['activation'] = ACTIVATIONS[kwargs.get('activation', 'ReLU')]()
 
         if design == 'PRQ':
             kwargs['tails'] = 'linear'

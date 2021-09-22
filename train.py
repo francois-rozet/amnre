@@ -35,8 +35,13 @@ def build_embedding(input_size: torch.Size, name: str = None, **kwargs) -> tuple
 
 def build_instance(settings: dict) -> tuple:
     # Simulator
+    live = None
+
     if settings['simulator'] == 'GW':
         simulator = GW()
+
+        if settings.get('live', True):
+            live = simulator.noise
     elif settings['simulator'] == 'HH':
         simulator = HH()
     else:  # settings['simulator'] == 'SCLP'
@@ -49,7 +54,7 @@ def build_instance(settings: dict) -> tuple:
         dataset = amnre.OnlineDataset(simulator, batch_size=settings['bs'])
         theta, x = simulator.joint()
     else:
-        dataset = amnre.OfflineDataset(settings['samples'], batch_size=settings['bs'], device=settings['device'])
+        dataset = amnre.OfflineDataset(settings['samples'], batch_size=settings['bs'], device=settings['device'], live=live)
         theta, x = dataset[0]
 
         if theta is None:
@@ -141,8 +146,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Training')
 
     parser.add_argument('-device', default='cpu', choices=['cpu', 'cuda'])
+
     parser.add_argument('-simulator', default='SLCP', choices=['SLCP', 'GW', 'HH'])
     parser.add_argument('-samples', default=None, help='samples file (H5)')
+    parser.add_argument('-live', default=False, action='store_true', help='live samples')  # only GW
+
     parser.add_argument('-model', type=json.loads, default={}, help='model architecture')
     parser.add_argument('-hyper', type=json.loads, default=None, help='hypernet architecture')
     parser.add_argument('-embedding', type=json.loads, default={}, help='embedding architecture')

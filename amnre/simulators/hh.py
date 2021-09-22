@@ -107,6 +107,7 @@ class HH(Simulator):
 
         return theta, x
 
+    @property
     def events(self) -> Tuple[np.ndarray, np.ndarray]:
         r""" (theta*, x*) """
 

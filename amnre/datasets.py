@@ -22,19 +22,15 @@ class OnlineDataset(data.IterableDataset):
         super().__init__()
 
         self.simulator = simulator
-        self.noisy = hasattr(self.simulator, 'noise')
 
         self.prior = self.simulator.prior
         self.batch_shape = (batch_size,)
 
-    def __iter__(self): # -> Tuple[torch.Tensor, torch.Tensor]
+    def __iter__(self):  # -> Tuple[torch.Tensor, torch.Tensor]
         while True:
             theta, x = self.simulator.joint(self.batch_shape)
 
-            if self.noisy:
-                x = x + self.simulator.noise(self.batch_shape)
-
-            yield theta, x  # (theta, x)
+            yield theta, x
 
 
 class OfflineDataset(data.IterableDataset):
@@ -47,11 +43,11 @@ class OfflineDataset(data.IterableDataset):
         batch_size: int = 2 ** 10,  # 1024
         device: str = 'cpu',
         shuffle: bool = True,
+        live: callable = None,
     ):
         super().__init__()
 
         self.f = h5py.File(filename, 'r')
-        self.noisy = 'noise' in self.f
 
         self.chunks = [
             slice(i, min(i + chunk_size, len(self)))
@@ -70,30 +66,31 @@ class OfflineDataset(data.IterableDataset):
             self.mu = None
 
         if 'sigma' in self.f:
-            self.isigma = torch.from_numpy(self.f['sigma'][:]).to(device) ** -1
+            self.isigma = torch.from_numpy(self.f['sigma'][:] ** -1).to(device)
         else:
             self.isigma = None
+
+        self.live = live
 
     def __len__(self) -> int:
         return len(self.f['x'])
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        if self.noisy:
-            x = self.f['x'][idx] + self.f['noise'][idx]
-        else:
-            x = self.f['x'][idx]
-
-        x = torch.from_numpy(x).to(self.device)
-
         if 'theta' in self.f:
             theta = self.f['theta'][idx]
             theta = torch.from_numpy(theta).to(self.device)
         else:
             theta = None
 
+        x = self.f['x'][idx]
+        x = torch.from_numpy(x).to(self.device)
+
+        if self.live is not None:
+            x = self.live(theta, x)
+
         return theta, self.normalize(x)
 
-    def __iter__(self): # -> Tuple[torch.Tensor, torch.Tensor]
+    def __iter__(self):  # -> Tuple[torch.Tensor, torch.Tensor]
         if self.shuffle:
             self.rng.shuffle(self.chunks)
 
@@ -105,11 +102,6 @@ class OfflineDataset(data.IterableDataset):
             if self.shuffle:
                 order = self.rng.permutation(len(x_chunk))
                 theta_chunk, x_chunk = theta_chunk[order], x_chunk[order]
-
-            ## Noise
-            if self.noisy:
-                noise_chunk = self.rng.permutation(self.f['noise'][chunk])
-                x_chunk = x_chunk + noise_chunk
 
             # CUDA
             theta_chunk, x_chunk = torch.from_numpy(theta_chunk), torch.from_numpy(x_chunk)
@@ -124,9 +116,12 @@ class OfflineDataset(data.IterableDataset):
             ):
                 theta, x = theta.to(self.device), x.to(self.device)
 
+                if self.live is not None:
+                    x = self.live(theta, x)
+
                 yield theta, self.normalize(x)
 
-    def normalize(self, x: torch.Tensor):
+    def normalize(self, x: torch.Tensor) -> torch.Tensor:
         if self.mu is not None:
             x = x - self.mu
 
@@ -139,19 +134,20 @@ class OfflineDataset(data.IterableDataset):
 class LTEDataset(data.IterableDataset):
     r"""Likelihood-To-Evidence (LTE) dataset"""
 
-    def __init__(self, dataset: data.IterableDataset, prior: Distribution = None):
+    def __init__(self, dataset: data.IterableDataset, prior: Distribution = None, shift: int = 1):
         super().__init__()
 
         self.dataset = dataset
         self.prior = prior
+        self.shift = shift
 
     def __len__(self) -> int:
         return len(self.dataset)
 
-    def __iter__(self): # -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+    def __iter__(self):  # -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
         for theta, x in self.dataset:
             if self.prior is None:
-                theta_prime = torch.roll(theta, 1, 0)
+                theta_prime = torch.roll(theta, self.shift, 0)
             else:
                 theta_prime = self.prior.sample(theta.shape[:-1])
 
