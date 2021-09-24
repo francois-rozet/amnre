@@ -199,10 +199,9 @@ if __name__ == '__main__':
             args.masks.append('uniform')
 
         if args.masks[0] == 'poisson':
-            filtr = None if args.filter is None else amnre.str2mask(args.filter)
-            mask_sampler = amnre.PoissonMask(theta_size, filtr=filtr)
+            mask_sampler = amnre.PoissonMask(theta_size, args.filter)
         elif args.masks[0] == 'uniform':
-            mask_sampler = amnre.UniformMask(theta_size)
+            mask_sampler = amnre.UniformMask(theta_size, args.filter)
         else:
             masks = amnre.list2masks(args.masks, theta_size, args.filter)
             mask_sampler = amnre.SelectionMask(masks)

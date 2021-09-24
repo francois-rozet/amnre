@@ -20,7 +20,8 @@ DST=$SCRATCH/$SLURM_ARRAY_TASK_ID
 
 MODEL='{"num_layers": 11, "hidden_size": 512, "activation": "ELU"}'
 EMBED='{"name": "ResNet", "num_blocks": 11, "residual_size": 512, "output_size": 512, "activation": "ELU"}'
+FILTER='110111111001011'
 
-python train.py -simulator GW -samples $SRC/gw-train.h5 -live -valid $SRC/gw-valid.h5 -model "$MODEL" -embedding "$EMBED" -epochs 512 -descents 1024 -lr 2e-4 -patience 11 -o $DST/models/gw-nre.pth -device cuda
+python train.py -simulator GW -samples $SRC/gw-train.h5 -live -valid $SRC/gw-valid.h5 -model "$MODEL" -embedding "$EMBED" -masks $FILTER -epochs 512 -descents 1024 -lr 2e-4 -patience 11 -o $DST/models/gw-nre.pth -device cuda
 
-python eval.py $DST/models/gw-nre.pth $SRC/gw-event.h5 -o $DST/results/gw-nre-event.csv
+python eval.py $DST/models/gw-nre.pth $SRC/gw-event.h5 -masks $FILTER -o $DST/results/gw-nre-event.csv

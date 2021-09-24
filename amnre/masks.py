@@ -23,21 +23,37 @@ class SelectionMask(nn.Module):
 class UniformMask(nn.Module):
     r"""Uniform mask sampler"""
 
-    def __init__(self, size: int):
+    def __init__(self, size: int, filtr: str = None):
         super().__init__()
 
         self.size = size
-        self.register_buffer('powers', 2 ** torch.arange(size))
+
+        if filtr is None:
+            self.filtr = None
+        else:
+            self.filtr = str2mask(filtr)
+
+        if self.filtr is None:
+            self.register_buffer('powers', 2 ** torch.arange(size))
+        else:
+            self.register_buffer('powers', 2 ** torch.arange(self.filtr.sum()))
 
     def forward(self, shape: torch.Size = ()) -> torch.BoolTensor:
-        integers = torch.randint(1, 2 ** self.size, shape)
-        return bit_repr(integers, self.powers)
+        integers = torch.randint(1, 2 * self.powers[-1], shape)
+        masks = bit_repr(integers, self.powers)
+
+        if self.filtr is not None:
+            temp = masks.new_zeros(shape + (self.size,))
+            temp[..., self.filtr] = masks
+            masks = temp
+
+        return masks
 
 
 class PoissonMask(nn.Module):
     r"""Poisson mask sampler"""
 
-    def __init__(self, size: int, lam: float = 1., filtr: torch.BoolTensor = None):
+    def __init__(self, size: int, lam: float = 1., filtr: str = None):
         super().__init__()
 
         self.size = size
@@ -47,7 +63,7 @@ class PoissonMask(nn.Module):
 
         indices = torch.arange(self.size)
         if filtr is not None:
-            indices = indices[filtr]
+            indices = indices[str2mask(filtr)]
 
         self.register_buffer('indices', indices)
 
