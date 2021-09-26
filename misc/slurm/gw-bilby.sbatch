@@ -17,5 +17,5 @@ cd $SCRATCH
 cp -r ~/amnre/misc/references .
 cd references
 
-python bilby_train.py
+python bilby_GW150914.py
 python bilby_eval.py
