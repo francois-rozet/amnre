@@ -19,7 +19,7 @@ SRC=$SCRATCH/samples
 DST=$SCRATCH/$SLURM_ARRAY_TASK_ID
 
 MODEL='{"num_layers": 3, "hidden_size": 64, "activation": "ELU"}'
-EMBED='{"name": "MLP", "num_layers": 7, "hidden_size": 256, "output_size": 256, "activation": "ELU"}'
+EMBED='{"arch": "MLP", "num_layers": 7, "hidden_size": 256, "output_size": 256, "activation": "ELU"}'
 
 python train.py -simulator HH -samples $SRC/hh-train.h5 -valid $SRC/hh-valid.h5 -model "$MODEL" -embedding "$EMBED" -masks =1 =2 -criterion PL -o $DST/models/hh-mnre-pl.pth -device cuda
 

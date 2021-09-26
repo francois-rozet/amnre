@@ -18,8 +18,24 @@ ACTIVATIONS = {
     'GELU': nn.GELU,
 }
 
+
+class BatchNorm(nn.BatchNorm1d):
+    r"""Batch Normalization (BatchNorm) layer
+    normalizing only the last dimension.
+    """
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        shape = x.shape[:-1]
+
+        x = x.view(-1, x.size(-1))
+        x = super().forward(x)
+        x = x.view(shape + x.shape[-1:])
+
+        return x
+
+
 NORMALIZATIONS = {
-    'batch': nn.BatchNorm1d,
+    'batch': BatchNorm,
     'group': nn.GroupNorm,
     'layer': nn.LayerNorm,
 }
@@ -212,6 +228,8 @@ class NRE(nn.Module):
         theta_size: The size of the parameters.
         x_size: The size of the (encoded) observations.
         embedding: An optional embedding for the observations.
+        moments: The parameters moments (mu, sigma) for standardization.
+        arch: The network architecture.
 
         **kwargs are transmitted to `MLP`.
     """
@@ -222,17 +240,24 @@ class NRE(nn.Module):
         x_size: int,
         embedding: nn.Module = nn.Identity(),
         moments: Tuple[torch.Tensor, torch.Tensor] = None,
+        arch: str = 'MLP',
         **kwargs,
     ):
         super().__init__()
 
         self.embedding = embedding
         self.standardize = nn.Identity() if moments is None else UnitNorm(*moments)
-        self.mlp = MLP(theta_size + x_size, 1, **kwargs)
+
+        if arch == 'ResNet':
+            net = ResNet
+        else:  # arch == 'MLP'
+            net = MLP
+
+        self.net = net(theta_size + x_size, 1, **kwargs)
 
     def forward(self, theta: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         theta = self.standardize(theta)
-        return self.mlp(torch.cat([theta, x], dim=-1)).squeeze(-1)
+        return self.net(torch.cat([theta, x], dim=-1)).squeeze(-1)
 
 
 class MNRE(nn.Module):
@@ -248,6 +273,7 @@ class MNRE(nn.Module):
         masks: The masks of the considered subsets of the parameters.
         x_size: The size of the (encoded) observations.
         embedding: An optional embedding for the observations.
+        moments: The parameters moments (mu, sigma) for standardization.
 
         **kwargs are transmitted to `NRE`.
     """
@@ -402,7 +428,7 @@ class MAF(flows.Flow):
         self,
         x_size: int,
         y_size: int,
-        design: str = 'A',  # ['PRQ', 'UMNN']
+        arch: str = 'A',  # ['PRQ', 'UMNN']
         num_transforms: int = 5,
         lu_linear: bool = False,
         moments: Tuple[torch.Tensor, torch.Tensor] = None,
@@ -415,19 +441,19 @@ class MAF(flows.Flow):
 
         kwargs['activation'] = ACTIVATIONS[kwargs.get('activation', 'ReLU')]()
 
-        if design == 'PRQ':
+        if arch == 'PRQ':
             kwargs['tails'] = 'linear'
             kwargs.setdefault('num_bins', 8)
             kwargs.setdefault('tail_bound', 1.)
 
             tfrm = transforms.MaskedPiecewiseRationalQuadraticAutoregressiveTransform
-        elif design == 'UMNN':
+        elif arch == 'UMNN':
             kwargs.setdefault('integrand_net_layers', [64, 64, 64])
             kwargs.setdefault('cond_size', 32)
             kwargs.setdefault('nb_steps', 32)
 
             tfrm = transforms.MaskedUMNNAutoregressiveTransform
-        else:  # design == 'A'
+        else:  # arch == 'A'
             tfrm = transforms.MaskedAffineAutoregressiveTransform
 
         compose = []

@@ -10,6 +10,32 @@ from time import time
 from typing import Tuple
 
 
+class CosineAnnealingLR(optim.lr_scheduler.CosineAnnealingLR):
+    def step(self, *args, epoch: int = None, **kwargs):
+        return super().step(epoch=epoch)
+
+    @property
+    def lr(self) -> float:
+        return self.get_last_lr()[0]
+
+    @property
+    def bottom(self) -> bool:
+        return self.last_epoch > self.T_max
+
+
+class ExponentialLR(optim.lr_scheduler.ExponentialLR):
+    def step(self, *args, epoch: int = None, **kwargs):
+        return super().step(epoch=epoch)
+
+    @property
+    def lr(self) -> float:
+        return self.get_last_lr()[0]
+
+    @property
+    def bottom(self) -> bool:
+        return False
+
+
 class ReduceLROnPlateau(optim.lr_scheduler.ReduceLROnPlateau):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -54,7 +80,7 @@ def routine(
     descents: int = None,
     flow: bool = False,
     mask_sampler: nn.Module = None,
-    clip: float = 1e2,
+    clip: float = None,
 ) -> Tuple[float, torch.Tensor]:  # (time, losses)
     r"""Training routine"""
 
@@ -74,8 +100,10 @@ def routine(
             l = criterion(prob)
         else:
             if mask_sampler is None:
-                ratio = model(theta, y)
-                ratio_prime = model(theta_prime, y)
+                ratio, ratio_prime = model(
+                    torch.stack((theta, theta_prime)),
+                    torch.stack((y, y)),
+                )
 
                 with torch.no_grad():
                     adv_ratio = adversary(theta if inverse else theta_prime, adv_y)
@@ -85,8 +113,11 @@ def routine(
                 else:
                     mask = mask_sampler()
 
-                ratio = model(theta, y, mask)
-                ratio_prime = model(theta_prime, y, mask)
+                ratio, ratio_prime = model(
+                    torch.stack((theta, theta_prime)),
+                    torch.stack((y, y)),
+                    torch.stack((mask, mask)) if model.hyper is None else mask,
+                )
 
                 with torch.no_grad():
                     adv_ratio = adversary(theta if inverse else theta_prime, adv_y, mask)

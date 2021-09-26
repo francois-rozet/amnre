@@ -7,7 +7,7 @@ from .criteria import (
 )
 from .datasets import OnlineDataset, OfflineDataset, LTEDataset
 from .models import MLP, ResNet, NRE, MNRE, AMNRE, NPE, MNPE, TNRE
-from .optim import ReduceLROnPlateau, Dummy, routine
+from .optim import CosineAnnealingLR, ExponentialLR, ReduceLROnPlateau, Dummy, routine
 from .samplers import LESampler, RESampler, PESampler
 from .simulators import Simulator, ParallelSampler
 

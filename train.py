@@ -20,13 +20,13 @@ from amnre.simulators.gw import GW
 from amnre.simulators.hh import HH
 
 
-def build_embedding(input_size: torch.Size, name: str = None, **kwargs) -> tuple:
+def build_embedding(input_size: torch.Size, arch: str = None, **kwargs) -> tuple:
     flatten = nn.Flatten(-len(input_size))
 
-    if name == 'MLP':
+    if arch == 'MLP':
         net = amnre.MLP(input_size.numel(), **kwargs)
         return nn.Sequential(flatten, net), net.output_size
-    elif name == 'ResNet':
+    elif arch == 'ResNet':
         net = amnre.ResNet(input_size.numel(), **kwargs)
         return nn.Sequential(flatten, net), net.output_size
     else:
@@ -168,13 +168,14 @@ if __name__ == '__main__':
     parser.add_argument('-descents', type=int, default=256, help='descents per epoch')
     parser.add_argument('-bs', type=int, default=1024, help='batch size')
     parser.add_argument('-lr', type=float, default=1e-3, help='initial learning rate')
-    parser.add_argument('-weight-decay', type=float, default=1e-3, help='weight decay')
+    parser.add_argument('-wd', type=float, default=1e-4, help='weight decay')
     parser.add_argument('-amsgrad', type=bool, default=False, help='AMS gradient')
+    parser.add_argument('-scheduler', default='plateau', choices=['plateau', 'exp', 'cosine'], help='learning rate scheduler')
     parser.add_argument('-patience', type=int, default=7, help='scheduler patience')
     parser.add_argument('-threshold', type=float, default=1e-2, help='scheduler threshold')
     parser.add_argument('-factor', type=float, default=5e-1, help='scheduler factor')
     parser.add_argument('-min-lr', type=float, default=1e-6, help='minimum learning rate')
-    parser.add_argument('-clip', type=float, default=1e2, help='gradient norm')
+    parser.add_argument('-clip', type=float, default=1e1, help='gradient norm')
 
     parser.add_argument('-valid', default=None, help='validation samples file (H5)')
 
@@ -226,17 +227,29 @@ if __name__ == '__main__':
     optimizer = optim.AdamW(
         model.parameters(),
         lr=args.lr,
-        weight_decay=args.weight_decay,
+        weight_decay=args.wd,
         amsgrad=args.amsgrad,
     )
 
-    scheduler = amnre.ReduceLROnPlateau(
-        optimizer,
-        factor=args.factor,
-        patience=args.patience,
-        threshold=args.threshold,
-        min_lr=args.min_lr,
-    )
+    if args.scheduler == 'cosine':
+        scheduler = amnre.CosineAnnealingLR(
+            optimizer,
+            T_max=args.epochs,
+            eta_min=args.min_lr,
+        )
+    elif args.scheduler == 'exp':
+        scheduler = amnre.ExponentialLR(
+            optimizer,
+            gamma=(args.lr / args.min_lr) ** (-1 / args.epochs),
+        )
+    else:  # args.scheduler == 'plateau':
+        scheduler = amnre.ReduceLROnPlateau(
+            optimizer,
+            factor=args.factor,
+            patience=args.patience,
+            threshold=args.threshold,
+            min_lr=args.min_lr,
+        )
 
     # Datasets
     trainset = amnre.LTEDataset(dataset)
@@ -294,12 +307,11 @@ if __name__ == '__main__':
         else:
             scheduler.step(losses.mean())
 
-        if scheduler.plateau:
-            df = pd.DataFrame(stats)
-            df.to_csv(args.output.replace('.pth', '.csv'), index=False)
+        df = pd.DataFrame(stats)
+        df.to_csv(args.output.replace('.pth', '.csv'), index=False)
 
-            if scheduler.bottom:
-                break
+        if scheduler.bottom:
+            break
 
     # Outputs
 
