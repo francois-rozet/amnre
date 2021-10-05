@@ -1,6 +1,6 @@
 # Arbitrary Marginal Neural Ratio Estimation for Likelihood-free Inference
 
-This repository is the official implementation of *Arbitrary Marginal Neural Ratio Estimation* (AMNRE) for *Likelihood-free Inference* (LFI).
+This repository is the official implementation of the Master's thesis [Arbitrary Marginal Neural Ratio Estimation for Likelihood-free Inference](https://hdl.handle.net/2268.2/12993) and the article [Arbitrary Marginal Neural Ratio Estimation for Simulation-based Inference](https://arxiv.org/abs/2110.00449).
 
 ## Code
 
@@ -69,26 +69,23 @@ The evaluation process is done in two stages: [`eval.py`](eval.py) performs the 
 
 Our experiments were performed on a cluster of GPUs managed with [Slurm](https://slurm.schedmd.com/documentation.html). All the scripts are provided in the [slurm](misc/slurm/) folder.
 
-## References
+## Citation
 
 ```bib
-@article{cranmer2020frontier,
-  title={The frontier of simulation-based inference},
-  author={Cranmer, Kyle and Brehmer, Johann and Louppe, Gilles},
-  journal={Proceedings of the National Academy of Sciences},
-  volume={117},
-  number={48},
-  pages={30055--30062},
-  year={2020},
-  publisher={National Acad Sciences}
+@mastersthesis{rozet2021arbitrary,
+  title={Arbitrary Marginal Neural Ratio Estimation for Likelihood-free Inference},
+  author={Rozet, Fran{\c{c}}ois and Louppe, Gilles},
+  year={2021},
+  school={University of Liège, Belgium},
+  url={https://hdl.handle.net/2268.2/12993}
 }
 
-@inproceedings{hermans2020likelihood,
-  title={Likelihood-free mcmc with amortized approximate ratio estimators},
-  author={Hermans, Joeri and Begy, Volodimir and Louppe, Gilles},
-  booktitle={International Conference on Machine Learning},
-  pages={4239--4248},
-  year={2020},
-  organization={PMLR}
+@misc{rozet2021arbitrary,
+  title={Arbitrary Marginal Neural Ratio Estimation for Simulation-based Inference},
+  author={François Rozet and Gilles Louppe},
+  year={2021},
+  eprint={2110.00449},
+  archivePrefix={arXiv},
+  primaryClass={cs.LG}
 }
 ```
